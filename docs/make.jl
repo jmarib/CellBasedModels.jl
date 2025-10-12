@@ -5,23 +5,23 @@ using Documenter, CellBasedModels
 
 makedocs(sitename="CellBasedModels.jl",
 pages = [
-    "Home" => "index.md",
-    "Usage" => [
-        "Usage_intro.md",
-        "Usage_Agent.md",
-        "Usage_Community.md",
-        "Usage_Fitting.md",
-    ],
-    "Examples" => [
-        "Patterning.md",
-        "Development.md",
-        "Aggregation.md",
-        "Bacteries.md",
-        "Chemotaxis.md"
-    ], 
-    "Models.md",
+    # "Home" => "index.md",
+    # "Usage" => [
+    #     "Usage_intro.md",
+    #     "Usage_Agent.md",
+    #     "Usage_Community.md",
+    #     "Usage_Fitting.md",
+    # ],
+    # "Examples" => [
+    #     "Patterning.md",
+    #     "Development.md",
+    #     "Aggregation.md",
+    #     "Bacteries.md",
+    #     "Chemotaxis.md"
+    # ], 
+    # "Models.md",
     "API.md",
-    "APIdevelopers.md"
+    # "APIdevelopers.md"
 ],
 format = Documenter.HTML(prettyurls = false)
 )

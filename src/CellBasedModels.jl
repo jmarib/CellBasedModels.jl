@@ -8,6 +8,7 @@ module CellBasedModels
     export Parameter
     include("./auxiliar/parameter.jl")
     include("./auxiliar/indexing.jl")
+    include("./auxiliar/meta.jl")
 
     # include("./baseStructs.jl")
     # include("./constants.jl")
@@ -16,6 +17,7 @@ module CellBasedModels
     # export CBMIntegrators
     export Rule, ODE, DynamicalODE, SplitODE, SDE, RODE, ADIODE
     include("./integrators/abstractTypes.jl")
+    include("./integrators/integratorsFunctionGeneration.jl")
 
     # #Random
     # export CBMDistributions

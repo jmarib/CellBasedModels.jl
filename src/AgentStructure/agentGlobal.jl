@@ -78,3 +78,5 @@ function Base.show(io::IO, ::Type{AgentGlobal{K,V}}) where {K,V}
 end
 
 Base.getproperty(x::AgentGlobal, f::Symbol) = haskey(getfield(x, :_properties), f) ? x._properties[f] : getfield(x, f)
+
+listProperties(x::AgentGlobal) = keys(x._properties)

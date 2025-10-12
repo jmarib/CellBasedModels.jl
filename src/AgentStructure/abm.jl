@@ -13,11 +13,11 @@ end
 
 function ABM(
         
-        dims,
+        dims;
 
-        agents::NamedTuple=(;);
+        agents::NamedTuple=(;),
         
-        kwargs...
+        rules::NamedTuple=(;)
         
     )
     
@@ -25,22 +25,13 @@ function ABM(
     names = keys(agents)
     types = Tuple{[typeof(par) for par in values(agents)]...}
 
-    rules = isa(rules, Expr) ? (; main=rules) : rules
     checkUpdates!(agents, rules)
-    # checkUpdates!(odes, agents)
-    # checkUpdates!(sdes, agents)
-    # checkUpdates!(pdesDifusion, agents)
-    # checkUpdates!(pdesAdvection, agents)
-    # checkUpdates!(pdesReaction, agents)
-    # checkUpdates!(pdesReaction, agents)
 
-    f = Dict{Symbol,Function}()
-    makeRulesFunction!(f, rules, (dims, names, types))
-    # makeStepFunction!(abm, dims, tag)
-
+    f = generateFunctions!(rules, (dims, names, types))
+    
     return ABM{dims, names, types}(
         agents,
-        (;), NamedTuple(f), (;)
+        (;), f, (;)
     )
 
 end
@@ -72,105 +63,67 @@ end
 
 Base.getproperty(x::ABM, f::Symbol) = haskey(getfield(x, :_agents), f) ? x._agents[f] : getfield(x, f)
 
-function checkUpdates!(params::NamedTuple, updates::Expr)
+function checkExpr!(agents::NamedTuple, s::Array, integrator::AbstractIntegrator)
 
-    postwalk(x-> @capture(x, a_[b_]) ? addUpdate(a,params, x) : x , updates)
-    postwalk(x-> @capture(x, @dt(b_.a__)) ? addDt(b,a,params, x) : x , updates)
-
-end
-
-function checkUpdates!(params::NamedTuple, updates::NamedTuple)
-
-    for (name, code) in pairs(updates)
-        checkUpdates!(params, code)
-    end
-
-end
-
-function addUpdate(expr, params, x)
-
-    exprList = [Meta.parse(string(e)) for e in split("$expr", ".")]
-
-    if !(exprList[1] == :communityNew)
-        return x
-    end
-
-    p = params
-    key = :community
-    try
-        for key in exprList[2:end]
-            p = getproperty(p, key)
+    a = agents
+    for i in s
+        if i in names(a)
+            a = getproperty(a, i)
+        else
+            throw(ErrorException("Expression $s not recognized. $i is not an agent, scope or parameter."))
         end
-    catch
-        error("Key $key in expression @new($expr) not recognized. Is it an scope or parameter of an agent?")
     end
 
-    p._updated = true
-    
-    return x
+    return a
 
 end
 
-function addDt(a,b,c,params,x)
+function addUpdate!(agents::NamedTuple, integrator::AbstractIntegrator)
 
-    if a != :community
-        error("Scope $a not recognized. Use :community.")
-    elseif !(b in names(params))
-        error("Scope $b not recognized. Use one of $(names(params)).")
-    elseif !(c in names(params[c]))
-        error("Parameter $c not recognized. Use one of $(names(params[c])).")
+    s = splitExpr(integrator.args[2])
+    a = agents
+    for i in s
+        if i in names(a)
+            a = getproperty(a, i)
+        end
     end
 
-    params[b][c]._DE = true
+    if integrator isa Rule
+        a._updated = true
+    else
+        a._DE = true
+    end
 
-    return x
+    return nothing
 
 end
 
-function makeRulesFunction!(f, updates::NamedTuple, specialization)
+function checkUpdates!(agents::NamedTuple, rules::NamedTuple)
 
-    d = Dict{Symbol,Expr}()
+    for (ruleName, integrator) in pairs(rules)
+        for code in listCode(integrator)
+            for (agentName, agent) in pairs(agents)
+                for paramName in listProperties(agent)
+                    if hasParameter(code, :($integrator.dt.$agentName.$paramName))
 
-    for (functionName, code) in pairs(updates)
+                        addUpdate!(agent, paramName, integrator)
 
-        # if isdefined(CellBasedModels.CustomFunctions, functionName)
-        #     error("Function $(functionName) already exists in CustomFunctions module.")
-        # end
-
-        for neighbors in NEIGHBORS_ALGS
-            code_ = postwalk(x-> @capture(x, a_) && typeof(a) == Symbol ? (startswith(string(a), "@loopOverNeighbors") ? Symbol("$a$neighbors") : x) : x, code)
-            code__ = quote
-
-                function $functionName(community::CommunityABM{ABM{$(specialization...)}, CPU, $neighbors{$(specialization...)}}) 
-                    function kernel!(communityNew, community) 
-                        $code_
                     end
-                    kernel!(community._parametersNew, community._parameters)
                 end
-                        
-            end
-            d[Symbol("$(functionName)_CPU_$neighbors")] = code__
-            CellBasedModels.CustomFunctions.eval(code__)
-
-            if hasCuda()
-                code__ = quote
-                    function $functionName(community::CommunityABM{ABM{$(specialization...)}, GPU, $neighbors{$(specialization...)}})
-                        function kernel!(communityNew, community) 
-                            $code_
-                        end
-                        @cuda threads=256 blocks=ceil(Int,size(community.agents,1)/256) kernel!(community._parametersNew, community._parameters)
-                    end                        
-                end
-                d[Symbol("$(functionName)_GPU_$neighbors")] = code__
-                CellBasedModels.CustomFunctions.eval(code__)
             end
         end
-    
-        f[functionName] = eval(Meta.parse("CellBasedModels.CustomFunctions.$functionName"))     
-
     end
 
-    return NamedTuple(d)
+end
+
+function generateFunctions!(rules::NamedTuple, specialization)
+
+    f = Dict{Symbol,Function}()
+    for (ruleName, integrator) in pairs(rules)
+        generateCode!(f, ruleName, integrator, specialization)
+    end
+
+    return NamedTuple(f)
 
 end
 
