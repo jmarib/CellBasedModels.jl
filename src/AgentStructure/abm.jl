@@ -62,6 +62,7 @@ function Base.show(io::IO, ::Type{ABM{D, AN, AD}}) where {D, AN, AD}
 end
 
 Base.getproperty(x::ABM, f::Symbol) = haskey(getfield(x, :_agents), f) ? x._agents[f] : getfield(x, f)
+listProperties(x::ABM) = (nameAgent=listProperties(agent) for (nameAgent, agent) in pairs(x._agents))
 
 function checkExpr!(agents::NamedTuple, s::Array, integrator::AbstractIntegrator)
 

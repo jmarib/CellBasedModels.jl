@@ -9,6 +9,7 @@ module CellBasedModels
     include("./auxiliar/parameter.jl")
     include("./auxiliar/indexing.jl")
     include("./auxiliar/meta.jl")
+    include("./auxiliar/recursiveCachedArrays.jl")
 
     # include("./baseStructs.jl")
     # include("./constants.jl")

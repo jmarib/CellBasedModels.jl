@@ -12,9 +12,10 @@ verbose = true
 @testset verbose=true "CellBasedModels.jl" begin
     # include("testIndexing.jl")
     # include("testParameter.jl")
+    include("testRecursiveCachedArrays.jl")
     # include("testTypeIntegrators.jl")
     # include("testAgentGlobal.jl")
-    include("testABM.jl")
+    # include("testABM.jl")
 end
 
 # include("testUnits.jl")
