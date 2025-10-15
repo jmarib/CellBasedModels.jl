@@ -1,15 +1,11 @@
 # Based on code from M. Bauman Stackexchange answer + Gitter discussion
 
-# using DocStringExtensions
-# using RecipesBase
 using StaticArraysCore
 # using Statistics
 using ArrayInterface
 # using LinearAlgebra
 using SymbolicIndexingInterface
 import Adapt
-# using BenchmarkTools
-# using CUDA
 
 abstract type AbstractTupleOfCachedArrays{T, N, A} <: AbstractArray{T, N} end
 

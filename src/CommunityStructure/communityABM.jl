@@ -1,5 +1,3 @@
-using RecursiveArrayTools
-
 struct CommunityABM{A, P<:AbstractPlatform, N<:AbstractNeighbors}
 
     _agentCommunities::ABM
