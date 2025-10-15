@@ -13,7 +13,7 @@ import Adapt
 
 abstract type AbstractTupleOfCachedArrays{T, N, A} <: AbstractArray{T, N} end
 
-mutable struct TupleOfCachedArrays{T, N, A} <: AbstractTupleOfCachedArrays{T, N, A}
+struct TupleOfCachedArrays{T, N, A} <: AbstractTupleOfCachedArrays{T, N, A}
     u::T#::NTuple{N, <:AbstractVector} # A <: AbstractArray{<: AbstractArray{T, N - 1}}
     ns::A#::AbstractArray#::SVector{N, Int} # sizes of each subarray
 end
@@ -96,7 +96,7 @@ function Adapt.adapt_structure(to, VA::AbstractTupleOfCachedArrays)
     TupleOfCachedArrays(Adapt.adapt.((to,), VA.u))
 end
 
-function TupleOfCachedArrays(vec::Tuple, n::Union{Nothing, AbstractVector{<:Int}}=nothing)
+function TupleOfCachedArrays(vec::Tuple, n::Union{Nothing, AbstractVector{Int}}=nothing)
     # if n === nothing
     #     n = map(size, vec)
     #     n = SVector{length(vec), Int}(map(i -> i[1], n))

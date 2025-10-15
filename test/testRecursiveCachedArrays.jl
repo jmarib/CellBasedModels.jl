@@ -35,21 +35,19 @@ using CUDA
     end
 
     # Kernels working with TupleOfCachedArrays structure
-    ns = CUDA.CuArray{Int32}([100,20])
+    ns = CUDA.CuArray([100,20])
     cache = (CUDA.zeros(N), CUDA.ones(N))
     vt = CellBasedModels.TupleOfCachedArrays(cache, ns)
-    println(typeof(vt.u))
-    println(typeof(vt.ns))
     function f!(vt)
         index = threadIdx().x    # this example only requires linear indexing, so just use `x`
         stride = blockDim().x
-        @inbounds for i in index:stride:length(vt.u[1])
+        @inbounds for i in index:stride:vt.ns[1]
             vt.u[1][i] = 1.0 * vt.u[2][i]
         end
     end
     @cuda threads=254 f!(vt)
-    @test all(vt.u[1][1:ns[1]] .≈ 1) && all(vt.u[2][1:ns[2]] .≈ 1)
-    @test all(vt.u[1][ns[1]+1:end] .== 0) && all(vt.u[2][ns[2]+1:end] .== 1)
+    @test CUDA.@allowscalar all(vt.u[1][1:ns[1]] .≈ 1) && all(vt.u[2][1:ns[2]] .≈ 1)
+    @test CUDA.@allowscalar all(vt.u[1][ns[1]+1:end] .≈ 0) && all(vt.u[2][ns[2]+1:end] .≈ 1)
 
 end
 

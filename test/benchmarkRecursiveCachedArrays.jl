@@ -1,8 +1,11 @@
-using CellBasedModels
-using BenchmarkTools
 using CUDA   
 using RecursiveArrayTools
     
+N = 100000
+ns = [100,20]
+
+f!(x,y,v) = v .= x .* 0.1 .+ y
+
 cache = (zeros(N), zeros(N))
 xt = CellBasedModels.TupleOfCachedArrays(cache, ns)
 xt.u[1] .= 1; xt.u[2] .= 1
@@ -13,15 +16,6 @@ yt.u[1] .= 10; yt.u[2] .= 10;
 
 cache = (zeros(N), zeros(N))
 vt = CellBasedModels.TupleOfCachedArrays(cache, ns)
-
-@test all(xt.ns .== ns) && all(yt.ns .== ns) && all(vt.ns .== ns)
-@test all(xt.u[1] .== 1) && all(xt.u[2] .== 1)
-@test all(yt.u[1] .== 10) && all(yt.u[2] .== 10)
-@test all(vt.u[1] .== 0) && all(vt.u[2] .== 0)
-
-f!(xt,yt,vt)
-@test all(vt.u[1][1:ns[1]] .≈ 10.1) && all(vt.u[2][1:ns[2]] .≈ 10.1)
-@test all(vt.u[1][ns[1]+1:end] .== 0) && all(vt.u[2][ns[2]+1:end] .== 0)
 
 # GPU
 cache = (CUDA.zeros(N), CUDA.zeros(N))
@@ -34,9 +28,6 @@ yt_cuda.u[1] .= 10; yt_cuda.u[2] .= 10;
 
 cache = (CUDA.zeros(N), CUDA.zeros(N))
 vt_cuda = CellBasedModels.TupleOfCachedArrays(cache, ns)
-
-@test all(vt_cuda.u[1][1:ns[1]] .≈ 10.1) && all(vt_cuda.u[2][1:ns[2]] .≈ 10.1)
-@test all(vt_cuda.u[1][ns[1]+1:end] .== 0) && all(vt_cuda.u[2][ns[2]+1:end] .== 0)
 
 # Benchmarking
 cache = [zeros(N), zeros(N)]
@@ -62,10 +53,42 @@ println("TupleOfCachedArrays: ")
 @btime f!(xt,yt,vt);
 
 x_cuda = CUDA.zeros(2*N) .+ 1; y_cuda = CUDA.zeros(2*N) .+ 10; v_cuda = CUDA.zeros(2*N);
-println("CUDA Array: ")
+println("Array CUDA: ")
 @btime f!(x_cuda,y_cuda,v_cuda)
-println("CUDA Array Views: ")
+println("Array Views CUDA: ")
 x_cuda_view = @views x_cuda[1:sum(ns)]; y_cuda_view = @views y_cuda[1:sum(ns)]; v_cuda_view = @views v_cuda[1:sum(ns)];
 @btime @views f!(x_cuda_view,y_cuda_view,v_cuda_view)
-println("CUDA TupleOfCachedArrays: ")
+println("TupleOfCachedArrays CUDA: ")
 @btime f!(xt_cuda,yt_cuda,vt_cuda);
+
+ns = CUDA.CuArray(ns)
+
+cache = (CUDA.zeros(N), CUDA.ones(N))
+vt = CellBasedModels.TupleOfCachedArrays(cache, ns)
+function f2!(vt)
+    index = threadIdx().x    # this example only requires linear indexing, so just use `x`
+    stride = blockDim().x
+    y = vt.u[1]
+    x = vt.u[2]
+    ns = vt.ns
+    @inbounds for i in index:stride:ns[1]
+        y[i] = 1.0 * x[i]
+    end
+end
+@cuda threads=254 f2!(vt)
+println("Kernel TupleOfCachedArrays CUDA: ")
+@btime @cuda threads=254 f2!(vt)
+
+function f2!(x, y, n)
+    index = threadIdx().x    # this example only requires linear indexing, so just use `x`
+    stride = blockDim().x
+    @inbounds for i in index:stride:n[1]
+        y[i] = 1.0 * x[i]
+    end
+    return nothing
+end
+
+x = CUDA.zeros(2*N) .+ 1; y = CUDA.zeros(2*N) .+ 10; n = CUDA.CuArray([100,20]);
+@cuda threads=254 f2!(x, y, n)
+println("Kernel Array CUDA: ")
+@btime @cuda threads=254 f2!(x, y, n)

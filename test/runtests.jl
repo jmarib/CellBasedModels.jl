@@ -8,6 +8,7 @@ using Distributions
 using Random
 
 verbose = true
+benchmark = true
 
 @testset verbose=true "CellBasedModels.jl" begin
     # include("testIndexing.jl")
@@ -18,7 +19,10 @@ verbose = true
     # include("testABM.jl")
 end
 
-# include("testUnits.jl")
-# include("testAgent.jl")
-# include("testCommunity.jl")
-# include("testFitting.jl")
+if benchmark
+
+    using BenchmarkTools
+
+    include("benchmarkRecursiveCachedArrays.jl")
+
+end
