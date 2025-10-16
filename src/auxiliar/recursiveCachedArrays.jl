@@ -7,11 +7,13 @@ using ArrayInterface
 using SymbolicIndexingInterface
 import Adapt
 
-abstract type AbstractTupleOfCachedArrays{T, N, A} <: AbstractArray{T, N} end
+abstract type AbstractTupleOfCachedArrays{T, A, G, N} <: AbstractArray{T, N} end
 
-struct TupleOfCachedArrays{T, N, A} <: AbstractTupleOfCachedArrays{T, N, A}
-    u::T#::NTuple{N, <:AbstractVector} # A <: AbstractArray{<: AbstractArray{T, N - 1}}
-    ns::A#::AbstractArray#::SVector{N, Int} # sizes of each subarray
+struct TupleOfCachedArrays{T, A, G, N} <: AbstractTupleOfCachedArrays{T, A, G, N}
+    _u::T#::NTuple{N, <:AbstractVector} # A <: AbstractArray{<: AbstractArray{T, N - 1}}
+    _ns::A#::AbstractArray#::SVector{N, Int} # sizes of each subarray
+    _f::G
+    _sizes::NTuple{N, Int} # total sizes of each subarray
 end
 Adapt.@adapt_structure TupleOfCachedArrays
 # TupleOfCachedArrays with an added series for time
@@ -28,7 +30,7 @@ function Base.Array(VA::AbstractTupleOfCachedArrays{
         A <: AbstractVector{
             <:AbstractVector,
         }}
-    reduce(hcat, VA.u)
+    reduce(hcat, VA._u)
 end
 function Base.Array(VA::AbstractTupleOfCachedArrays{
         T,
@@ -37,7 +39,7 @@ function Base.Array(VA::AbstractTupleOfCachedArrays{
 }) where {T, N,
         A <:
         AbstractVector{<:Number}}
-    VA.u
+    VA._u
 end
 function Base.Matrix(VA::AbstractTupleOfCachedArrays{
         T,
@@ -47,7 +49,7 @@ function Base.Matrix(VA::AbstractTupleOfCachedArrays{
         A <: AbstractVector{
             <:AbstractVector,
         }}
-    reduce(hcat, VA.u)
+    reduce(hcat, VA._u)
 end
 function Base.Matrix(VA::AbstractTupleOfCachedArrays{
         T,
@@ -56,7 +58,7 @@ function Base.Matrix(VA::AbstractTupleOfCachedArrays{
 }) where {T, N,
         A <:
         AbstractVector{<:Number}}
-    Matrix(VA.u)
+    Matrix(VA._u)
 end
 function Base.Vector(VA::AbstractTupleOfCachedArrays{
         T,
@@ -66,7 +68,7 @@ function Base.Vector(VA::AbstractTupleOfCachedArrays{
         A <: AbstractVector{
             <:AbstractVector,
         }}
-    vec(reduce(hcat, VA.u))
+    vec(reduce(hcat, VA._u))
 end
 function Base.Vector(VA::AbstractTupleOfCachedArrays{
         T,
@@ -75,24 +77,24 @@ function Base.Vector(VA::AbstractTupleOfCachedArrays{
 }) where {T, N,
         A <:
         AbstractVector{<:Number}}
-    VA.u
+    VA._u
 end
 function Base.Array(VA::AbstractTupleOfCachedArrays)
-    vecs = vec.(VA.u)
-    Array(reshape(reduce(hcat, vecs), size(VA.u[1])..., length(VA.u)))
+    vecs = vec.(VA._u)
+    Array(reshape(reduce(hcat, vecs), size(VA._u[1])..., length(VA._u)))
 end
 function Base.Array{U}(VA::AbstractTupleOfCachedArrays) where {U}
-    vecs = vec.(VA.u)
-    Array(reshape(reduce(hcat, vecs), size(VA.u[1])..., length(VA.u)))
+    vecs = vec.(VA._u)
+    Array(reshape(reduce(hcat, vecs), size(VA._u[1])..., length(VA._u)))
 end
 
-Base.convert(::Type{AbstractArray}, VA::AbstractTupleOfCachedArrays) = stack(VA.u)
+Base.convert(::Type{AbstractArray}, VA::AbstractTupleOfCachedArrays) = stack(VA._u)
 
 function Adapt.adapt_structure(to, VA::AbstractTupleOfCachedArrays)
-    TupleOfCachedArrays(Adapt.adapt.((to,), VA.u))
+    TupleOfCachedArrays(Adapt.adapt.((to,), VA._u))
 end
 
-function TupleOfCachedArrays(vec::Tuple, n::Union{Nothing, AbstractVector{Int}}=nothing)
+function TupleOfCachedArrays(vec::NamedTuple, n::Union{Nothing, NamedTuple}=nothing)
     # if n === nothing
     #     n = map(size, vec)
     #     n = SVector{length(vec), Int}(map(i -> i[1], n))
@@ -103,13 +105,32 @@ function TupleOfCachedArrays(vec::Tuple, n::Union{Nothing, AbstractVector{Int}}=
     # n_ = Base.Array(n)
     # @assert all([length(vec[i]) for i in 1:length(n_)] .>= n_)
     T = typeof(vec)#map(eltype, vec)[1]
-    N = length(vec)
-    if all(x isa Union{<:AbstractArray, <:AbstractTupleOfCachedArrays} for x in vec)
-        A = Tuple{Union{typeof.(vec)...}}
-    else
-        A = typeof(vec)
+    A = typeof(n)
+    f, sizes = flatten_namedtuple(vec, n)
+    G = typeof(f)
+    N = length(f)
+    TupleOfCachedArrays{T, A, G, N}(vec, n, f, sizes)
+end
+
+function flatten_namedtuple(nt::NamedTuple, sizes::NamedTuple)
+    arrays = ()
+    ns = ()
+    for (k, v) in pairs(nt)
+        if v isa NamedTuple
+            # propagate size for this branch
+            size_val = haskey(sizes, k) ? sizes[k] : nothing
+            sub_sizes = haskey(sizes, k) && sizes[k] isa NamedTuple ? sizes[k] :
+                        NamedTuple{keys(v)}(fill(size_val, length(v)))
+            a_sub, n_sub = flatten_namedtuple(v, sub_sizes)
+            arrays = (arrays..., a_sub...)
+            ns = (ns..., n_sub...)
+        else
+            size_val = haskey(sizes, k) ? sizes[k] : nothing
+            arrays = (arrays..., v)
+            ns = (ns..., size_val)
+        end
     end
-    TupleOfCachedArrays{T, N, typeof(n)}(vec, n)
+    return arrays, ns
 end
 # function TupleOfCachedArrays(vec::AbstractVector{T}, ::NTuple{N}, n::Union{Nothing, AbstractVector{Int}}=nothing) where {T, N}
 #     if n === nothing
@@ -171,43 +192,60 @@ end
 Base.parent(vec::TupleOfCachedArrays) = vec.u
 
 get_discretes(x) = getfield(x, :discretes)
+@generated function Base.getproperty(VA::AbstractTupleOfCachedArrays{T}, s::Symbol) where {T}
+    names = fieldnames(T)
+    # build a clause for each fieldname in T
+    cases = [
+        :(s === $(QuoteNode(name)) && return getfield(getfield(VA, :_u), $(QuoteNode(name))))
+        for name in names
+    ]
+
+    quote
+        if s === :_u; return getfield(VA, :_u); end
+        if s === :_ns; return getfield(VA, :_ns); end
+        if s === :_sizes; return getfield(VA, :_sizes); end
+        if s === :_f; return getfield(VA, :_f); end
+        $(cases...)
+        error("Unknown property: $s for $VA")
+    end
+end
 
 # SymbolicIndexingInterface.is_timeseries(::Type{<:AbstractTupleOfCachedArrays}) = Timeseries()
 
 Base.IndexStyle(A::AbstractTupleOfCachedArrays) = Base.IndexStyle(typeof(A))
 Base.IndexStyle(::Type{<:AbstractTupleOfCachedArrays}) = IndexCartesian()
 
-@inline Base.length(VA::AbstractTupleOfCachedArrays) = length(VA.u)
+@inline Base.length(VA::AbstractTupleOfCachedArrays) = length(VA._u)
 @inline function Base.eachindex(VA::AbstractTupleOfCachedArrays)
-    return eachindex(VA.u)
+    return eachindex(VA._u)
 end
 @inline function Base.eachindex(
         ::IndexLinear, VA::AbstractTupleOfCachedArrays{T, N, <:AbstractVector{T}}) where {T, N}
-    return eachindex(IndexLinear(), VA.u)
+    return eachindex(IndexLinear(), VA._u)
 end
 @inline Base.IteratorSize(::Type{<:AbstractTupleOfCachedArrays}) = Base.HasLength()
-@inline Base.first(VA::AbstractTupleOfCachedArrays) = first(VA.u)
-@inline Base.last(VA::AbstractTupleOfCachedArrays) = last(VA.u)
+@inline Base.first(VA::AbstractTupleOfCachedArrays) = first(VA._u)
+@inline Base.last(VA::AbstractTupleOfCachedArrays) = last(VA._u)
 function Base.firstindex(VA::AbstractTupleOfCachedArrays{T,N,A}) where {T,N,A}
     N > 1 && Base.depwarn(
         "Linear indexing of `AbstractTupleOfCachedArrays` is deprecated. Change `A[i]` to `A.u[i]` ",
         :firstindex)
-    return firstindex(VA.u)
+    return firstindex(VA._u)
 end
 
 function Base.lastindex(VA::AbstractTupleOfCachedArrays{T,N,A}) where {T,N,A}
      N > 1 && Base.depwarn(
         "Linear indexing of `AbstractTupleOfCachedArrays` is deprecated. Change `A[i]` to `A.u[i]` ",
         :lastindex)
-    return lastindex(VA.u)
+    return lastindex(VA._u)
 end
 
 Base.getindex(A::AbstractTupleOfCachedArrays, I::Int) = A.u[I]
 Base.getindex(A::AbstractTupleOfCachedArrays, I::AbstractArray{Int}) = A.u[I]
 
-@deprecate Base.getindex(VA::AbstractTupleOfCachedArrays{T,N,A}, I::Int) where {T,N,A<:Union{AbstractArray, AbstractTupleOfCachedArrays}} VA.u[I] false
+@deprecate Base.getindex(VA::AbstractTupleOfCachedArrays{T,N,A}, I::Int) where {T,N,A<:Union{AbstractArray, AbstractTupleOfCachedArrays}} VA._u[I] false
 
-@deprecate Base.getindex(VA::AbstractTupleOfCachedArrays{T,N,A}, I::AbstractArray{Int}) where {T,N,A<:Union{AbstractArray, AbstractTupleOfCachedArrays}} VA.u[I] false
+@deprecate Base.getindex(VA::AbstractTupleOfCachedArrays{T,N,A}, I::AbstractArray{Int}) where {T,N,A<:Union{AbstractArray, AbstractTupleOfCachedArrays}} VA._u[I] false
 
 __parameterless_type(T) = Base.typename(T).wrapper
 
@@ -229,7 +267,7 @@ Base.@propagate_inbounds function _getindex(
     ti = Tuple(ii)
     i = last(ti)
     jj = CartesianIndex(Base.front(ti))
-    return VA.u[i][jj]
+    return VA._u[i][jj]
 end
 
 Base.@propagate_inbounds function _getindex(
@@ -271,35 +309,35 @@ end
 
 Base.@propagate_inbounds function Base.setindex!(VA::AbstractTupleOfCachedArrays{T, N}, v,
         ::Colon, I::Int) where {T, N}
-    VA.u[I] = v
+    VA._u[I] = v
 end
 
-Base.@propagate_inbounds Base.setindex!(VA::AbstractTupleOfCachedArrays, v, I::Int) = Base.setindex!(VA.u, v, I)
-@deprecate Base.setindex!(VA::AbstractTupleOfCachedArrays{T,N,A}, v, I::Int) where {T,N,A<:Union{AbstractArray, AbstractTupleOfCachedArrays}} Base.setindex!(VA.u, v, I) false
+Base.@propagate_inbounds Base.setindex!(VA::AbstractTupleOfCachedArrays, v, I::Int) = Base.setindex!(VA._u, v, I)
+@deprecate Base.setindex!(VA::AbstractTupleOfCachedArrays{T,N,A}, v, I::Int) where {T,N,A<:Union{AbstractArray, AbstractTupleOfCachedArrays}} Base.setindex!(VA._u, v, I) false
 
 Base.@propagate_inbounds function Base.setindex!(VA::AbstractTupleOfCachedArrays{T, N}, v,
         ::Colon, I::Colon) where {T, N}
-    VA.u[I] = v
+    VA._u[I] = v
 end
 
-Base.@propagate_inbounds Base.setindex!(VA::AbstractTupleOfCachedArrays, v, I::Colon) = Base.setindex!(VA.u, v, I)
+Base.@propagate_inbounds Base.setindex!(VA::AbstractTupleOfCachedArrays, v, I::Colon) = Base.setindex!(VA._u, v, I)
 @deprecate Base.setindex!(VA::AbstractTupleOfCachedArrays{T,N,A}, v, I::Colon)  where {T,N,A<:Union{AbstractArray, AbstractTupleOfCachedArrays}} Base.setindex!(
-    VA.u, v, I) false
+    VA._u, v, I) false
 
 Base.@propagate_inbounds function Base.setindex!(VA::AbstractTupleOfCachedArrays{T, N}, v,
         ::Colon, I::AbstractArray{Int}) where {T, N}
-    VA.u[I] = v
+    VA._u[I] = v
 end
 
-Base.@propagate_inbounds Base.setindex!(VA::AbstractTupleOfCachedArrays, v, I::AbstractArray{Int}) = Base.setindex!(VA.u, v, I)
+Base.@propagate_inbounds Base.setindex!(VA::AbstractTupleOfCachedArrays, v, I::AbstractArray{Int}) = Base.setindex!(VA._u, v, I)
 @deprecate Base.setindex!(VA::AbstractTupleOfCachedArrays{T,N,A}, v, I::AbstractArray{Int}) where {T,N,A<:Union{AbstractArray, AbstractTupleOfCachedArrays}} Base.setindex!(
     VA, v, :, I) false
 
 Base.@propagate_inbounds function Base.setindex!(
         VA::AbstractTupleOfCachedArrays{T, N}, v, i::Int,
         ::Colon) where {T, N}
-    for j in 1:length(VA.u)
-        VA.u[j][i] = v[j]
+    for j in 1:length(VA._u)
+        VA._u[j][i] = v[j]
     end
     return v
 end
@@ -308,7 +346,7 @@ Base.@propagate_inbounds function Base.setindex!(VA::AbstractTupleOfCachedArrays
     ti = Tuple(ii)
     i = last(ti)
     jj = CartesianIndex(Base.front(ti))
-    return VA.u[i][jj] = x
+    return VA._u[i][jj] = x
 end
 
 Base.@propagate_inbounds function Base.setindex!(VA::AbstractTupleOfCachedArrays{T, N},
@@ -327,7 +365,7 @@ Base.@propagate_inbounds function Base.setindex!(VA::AbstractTupleOfCachedArrays
 end
 
 # Interface for the two-dimensional indexing, a more standard AbstractArray interface
-@inline Base.size(VA::AbstractTupleOfCachedArrays) = (size(VA.u[1])..., length(VA.u))
+@inline Base.size(VA::AbstractTupleOfCachedArrays) = (size(VA._u[1])..., length(VA._u))
 @inline Base.size(VA::AbstractTupleOfCachedArrays, i) = size(VA)[i]
 # @inline Base.size(A::Adjoint{T, <:AbstractTupleOfCachedArrays}) where {T} = reverse(size(A.parent))
 # @inline Base.size(A::Adjoint{T, <:AbstractTupleOfCachedArrays}, i) where {T} = size(A)[i]
@@ -336,7 +374,7 @@ Base.axes(VA::AbstractTupleOfCachedArrays, d::Int) = Base.OneTo(size(VA)[d])
 
 Base.@propagate_inbounds function Base.setindex!(VA::AbstractTupleOfCachedArrays{T, N}, v,
         I::Int...) where {T, N}
-    VA.u[I[end]][Base.front(I)...] = v
+    VA._u[I[end]][Base.front(I)...] = v
 end
 
 function Base.:(==)(A::AbstractTupleOfCachedArrays, B::AbstractTupleOfCachedArrays)
@@ -350,13 +388,13 @@ Base.:(==)(A::AbstractArray, B::AbstractTupleOfCachedArrays) = B == A
 # The iterator will be over the subarrays of the container, not the individual elements
 # unlike an true AbstractArray
 function Base.iterate(VA::AbstractTupleOfCachedArrays, state = 1)
-    state >= length(VA.u) + 1 ? nothing : (VA[:, state], state + 1)
+    state >= length(VA._u) + 1 ? nothing : (VA[:, state], state + 1)
 end
 
 # Growing the array simply adds to the container vector
 function _copyfield(VA, fname)
     if fname == :u
-        copy(VA.u)
+        copy(VA._u)
     elseif fname == :t
         copy(VA.t)
     else
@@ -369,31 +407,31 @@ end
 
 function Base.zero(VA::AbstractTupleOfCachedArrays)
     val = copy(VA)
-    val.u .= zero.(VA.u)
+    val.u .= zero.(VA._u)
     return val
 end
 
-Base.sizehint!(VA::AbstractTupleOfCachedArrays{T, N}, i) where {T, N} = sizehint!(VA.u, i)
+Base.sizehint!(VA::AbstractTupleOfCachedArrays{T, N}, i) where {T, N} = sizehint!(VA._u, i)
 
-Base.reverse!(VA::AbstractTupleOfCachedArrays) = reverse!(VA.u)
-Base.reverse(VA::AbstractTupleOfCachedArrays) = TupleOfCachedArrays(reverse(VA.u))
+Base.reverse!(VA::AbstractTupleOfCachedArrays) = reverse!(VA._u)
+Base.reverse(VA::AbstractTupleOfCachedArrays) = TupleOfCachedArrays(reverse(VA._u))
 
 function Base.resize!(VA::AbstractTupleOfCachedArrays, i::Integer)
     if Base.hasproperty(VA, :sys) && VA.sys !== nothing
         error("resize! is not allowed on AbstractTupleOfCachedArrays with a sys")
     end
-    Base.resize!(VA.u, i)
+    Base.resize!(VA._u, i)
     if Base.hasproperty(VA, :t) && VA.t !== nothing
         Base.resize!(VA.t, i)
     end
 end
 
 function Base.pointer(VA::AbstractTupleOfCachedArrays)
-    Base.pointer(VA.u)
+    Base.pointer(VA._u)
 end
 
 function Base.push!(VA::AbstractTupleOfCachedArrays{T, N}, new_item::AbstractArray) where {T, N}
-    push!(VA.u, new_item)
+    push!(VA._u, new_item)
 end
 
 function Base.append!(VA::AbstractTupleOfCachedArrays{T, N},
@@ -405,7 +443,7 @@ function Base.append!(VA::AbstractTupleOfCachedArrays{T, N},
 end
 
 function Base.stack(VA::AbstractTupleOfCachedArrays; dims = :)
-    stack(stack.(VA.u); dims)
+    stack(stack.(VA._u); dims)
 end
 
 # AbstractArray methods
@@ -443,14 +481,14 @@ function Base.checkbounds(
         ::Type{Bool}, VA::AbstractTupleOfCachedArrays{T, N, <:AbstractVector{T}},
         idxs...) where {T, N}
     if length(idxs) == 2 && (idxs[1] == Colon() || idxs[1] == 1)
-        return checkbounds(Bool, VA.u, idxs[2])
+        return checkbounds(Bool, VA._u, idxs[2])
     end
-    return checkbounds(Bool, VA.u, idxs...)
+    return checkbounds(Bool, VA._u, idxs...)
 end
 function Base.checkbounds(::Type{Bool}, VA::AbstractTupleOfCachedArrays, idx...)
-    checkbounds(Bool, VA.u, last(idx)) || return false
+    checkbounds(Bool, VA._u, last(idx)) || return false
     for i in last(idx)
-        checkbounds(Bool, VA.u[i], Base.front(idx)...) || return false
+        checkbounds(Bool, VA._u[i], Base.front(idx)...) || return false
     end
     return true
 end
@@ -523,10 +561,10 @@ for op in [:(Base.:/), :(Base.:\), :(Base.:*)]
 end
 
 function Base.CartesianIndices(VA::AbstractTupleOfCachedArrays)
-    if !allequal(size.(VA.u))
+    if !allequal(size.(VA._u))
         error("CartesianIndices only valid for non-ragged arrays")
     end
-    return CartesianIndices((size(VA.u[1])..., length(VA.u)))
+    return CartesianIndices((size(VA._u[1])..., length(VA._u)))
 end
 
 # Tools for creating similar objects
@@ -552,21 +590,21 @@ end
 # end
 
 @inline function Base.similar(VA::TupleOfCachedArrays, ::Type{T} = eltype(VA)) where {T}
-    TupleOfCachedArrays(similar.(VA.u, T))
+    TupleOfCachedArrays(similar.(VA._u, T))
 end
 
 @inline function Base.similar(VA::TupleOfCachedArrays, dims::N) where {N <: Number}
     l = length(VA)
     if dims <= l
-        TupleOfCachedArrays(similar.(VA.u[1:dims]))
+        TupleOfCachedArrays(similar.(VA._u[1:dims]))
     else
-        TupleOfCachedArrays([similar.(VA.u); [similar(VA.u[end]) for _ in (l + 1):dims]])
+        TupleOfCachedArrays([similar.(VA._u); [similar(VA._u[end]) for _ in (l + 1):dims]])
     end
 end
 
 # fill!
 function Base.fill!(VA::AbstractTupleOfCachedArrays, x)
-    for i in 1:length(VA.u)
+    for i in 1:length(VA._u)
         if VA[:, i] isa AbstractArray
             fill!(VA[:, i], x)
         else
@@ -579,15 +617,15 @@ end
 Base.reshape(A::AbstractTupleOfCachedArrays, dims...) = Base.reshape(Array(A), dims...)
 
 # Need this for ODE_DEFAULT_UNSTABLE_CHECK from DiffEqBase to work properly
-@inline Base.any(f, VA::AbstractTupleOfCachedArrays) = any(any(f, u) for u in VA.u)
-@inline Base.all(f, VA::AbstractTupleOfCachedArrays) = all(all(f, u) for u in VA.u)
+@inline Base.any(f, VA::AbstractTupleOfCachedArrays) = any(any(f, u) for u in VA._u)
+@inline Base.all(f, VA::AbstractTupleOfCachedArrays) = all(all(f, u) for u in VA._u)
 
 # conversion tools
-vecarr_to_vectors(VA::AbstractTupleOfCachedArrays) = [VA[i, :] for i in eachindex(VA.u[1])]
+vecarr_to_vectors(VA::AbstractTupleOfCachedArrays) = [VA[i, :] for i in eachindex(VA._u[1])]
 Base.vec(VA::AbstractTupleOfCachedArrays) = vec(convert(Array, VA)) # Allocates
 # stack non-ragged arrays to convert them
 function Base.convert(::Type{Array}, VA::AbstractTupleOfCachedArrays)
-    if !allequal(size.(VA.u))
+    if !allequal(size.(VA._u))
         error("Can only convert non-ragged TupleOfCachedArrays to Array")
     end
     return Array(VA)
@@ -695,7 +733,7 @@ for (type, N_expr) in [
         bc = Broadcast.flatten(bc)
         N = $N_expr
         @inbounds for i in 1:N
-            dest_ = @views dest.u[i][1:dest.ns[i]]
+            dest_ = @views dest._f[i][1:dest._sizes[i]]
             copyto!(dest_, unpack_voa(bc, i))
         end
         dest
@@ -710,7 +748,7 @@ end
 Retrieve number of arrays in the AbstractTupleOfCachedArrayss of a broadcast.
 """
 narrays(A) = 0
-narrays(A::AbstractTupleOfCachedArrays) = length(A.u)
+narrays(A::AbstractTupleOfCachedArrays) = length(A._sizes)
 narrays(bc::Broadcast.Broadcasted) = _narrays(bc.args)
 narrays(A, Bs...) = common_length(narrays(A), _narrays(Bs))
 
@@ -721,7 +759,7 @@ function common_length(a, b)
       throw(DimensionMismatch("number of arrays must be equal"))))
 end
 
-_narrays(args::AbstractTupleOfCachedArrays) = length(args.u)
+_narrays(args::AbstractTupleOfCachedArrays) = length(args._sizes)
 @inline _narrays(args::Tuple) = common_length(narrays(args[1]), _narrays(Base.tail(args)))
 _narrays(args::Tuple{Any}) = _narrays(args[1])
 _narrays(::Any) = 0
@@ -734,7 +772,7 @@ end
     Broadcast.Broadcasted(bc.f, unpack_args_voa(i, bc.args))
 end
 unpack_voa(x, ::Any) = x
-unpack_voa(x::AbstractTupleOfCachedArrays, i) = @views x.u[i][1:x.ns[i]]
+unpack_voa(x::AbstractTupleOfCachedArrays, i) = @views x._f[i][1:x._sizes[i]]
 # function unpack_voa(x::AbstractArray{T, N}, i) where {T, N}
 #     @view x[ntuple(x -> Colon(), N - 1)..., i]
 # end

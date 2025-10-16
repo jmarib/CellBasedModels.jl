@@ -1,83 +1,17 @@
-using CUDA   
 using RecursiveArrayTools
-    
+
 N = 100000
-ns = [100,20]
+ns_vec = [100, 20] #sizes of each array in the tuple
+ns = (a=100, b=20) #sizes of each array in the tuple
 
 f!(x,y,v) = v .= x .* 0.1 .+ y
 
-cache = (zeros(N), zeros(N))
-xt = CellBasedModels.TupleOfCachedArrays(cache, ns)
-xt.u[1] .= 1; xt.u[2] .= 1
-
-cache = (zeros(N), zeros(N))
-yt = CellBasedModels.TupleOfCachedArrays(cache, ns)
-yt.u[1] .= 10; yt.u[2] .= 10;
-
-cache = (zeros(N), zeros(N))
-vt = CellBasedModels.TupleOfCachedArrays(cache, ns)
-
-# GPU
-cache = (CUDA.zeros(N), CUDA.zeros(N))
-xt_cuda = CellBasedModels.TupleOfCachedArrays(cache, ns)
-xt_cuda.u[1] .= 1; xt_cuda.u[2] .= 1
-
-cache = (CUDA.zeros(N), CUDA.zeros(N))
-yt_cuda = CellBasedModels.TupleOfCachedArrays(cache, ns)
-yt_cuda.u[1] .= 10; yt_cuda.u[2] .= 10;
-
-cache = (CUDA.zeros(N), CUDA.zeros(N))
-vt_cuda = CellBasedModels.TupleOfCachedArrays(cache, ns)
-
-# Benchmarking
-cache = [zeros(N), zeros(N)]
-xv = VectorOfArray(cache)
-xv.u[1] .= 1; xv.u[2] .= 1
-
-cache = [zeros(N), zeros(N)]
-yv = VectorOfArray(cache)
-yv.u[1] .= 10; yv.u[2] .= 10;
-
-cache = [zeros(N), zeros(N)]
-vv = VectorOfArray(cache)
-x = zeros(2*N) .+ 1; y = zeros(2*N) .+ 10; v = zeros(2*N);
-
-println("Array: ")
-@btime f!(x,y,v)
-println("Array Views: ")
-x_view = @views x[1:sum(ns)]; y_view = @views y[1:sum(ns)]; v_view = @views v[1:sum(ns)];
-@btime @views f!(x_view,y_view,v_view)
-println("ArrayOfVectors: ")
-@btime f!(xv,yv,vv); 
-println("TupleOfCachedArrays: ")
-@btime f!(xt,yt,vt);
-
-x_cuda = CUDA.zeros(2*N) .+ 1; y_cuda = CUDA.zeros(2*N) .+ 10; v_cuda = CUDA.zeros(2*N);
-println("Array CUDA: ")
-@btime f!(x_cuda,y_cuda,v_cuda)
-println("Array Views CUDA: ")
-x_cuda_view = @views x_cuda[1:sum(ns)]; y_cuda_view = @views y_cuda[1:sum(ns)]; v_cuda_view = @views v_cuda[1:sum(ns)];
-@btime @views f!(x_cuda_view,y_cuda_view,v_cuda_view)
-println("TupleOfCachedArrays CUDA: ")
-@btime f!(xt_cuda,yt_cuda,vt_cuda);
-
-ns = CUDA.CuArray(ns)
-
-cache = (CUDA.zeros(N), CUDA.ones(N))
-vt = CellBasedModels.TupleOfCachedArrays(cache, ns)
-function f2!(vt)
-    index = threadIdx().x    # this example only requires linear indexing, so just use `x`
-    stride = blockDim().x
-    y = vt.u[1]
-    x = vt.u[2]
-    ns = vt.ns
-    @inbounds for i in index:stride:ns[1]
-        y[i] = 1.0 * x[i]
+function f_!(x::NTuple{N,Any}, y::NTuple{N,Any}, v::NTuple{N,Any}) where {N}
+    for i in 1:N
+        f!(x[i], y[i], v[i])
     end
+    return nothing
 end
-@cuda threads=254 f2!(vt)
-println("Kernel TupleOfCachedArrays CUDA: ")
-@btime @cuda threads=254 f2!(vt)
 
 function f2!(x, y, n)
     index = threadIdx().x    # this example only requires linear indexing, so just use `x`
@@ -88,7 +22,110 @@ function f2!(x, y, n)
     return nothing
 end
 
-x = CUDA.zeros(2*N) .+ 1; y = CUDA.zeros(2*N) .+ 10; n = CUDA.CuArray([100,20]);
-@cuda threads=254 f2!(x, y, n)
-println("Kernel Array CUDA: ")
+function f2!(vt)
+    index = threadIdx().x    # this example only requires linear indexing, so just use `x`
+    stride = blockDim().x
+    y = vt.b
+    x = vt.a
+    ns = vt._ns
+    @inbounds for i in index:stride:ns.a
+        y[i] = 1.0 * x[i]
+    end
+end
+
+cache = (a = zeros(N), b = zeros(N))
+xt = CellBasedModels.TupleOfCachedArrays(cache, ns)
+for i in 1:length(ns)
+    xt.a .= 1
+end
+
+cache = (a = zeros(N), b = zeros(N))
+yt = CellBasedModels.TupleOfCachedArrays(cache, ns)
+for i in 1:length(ns)
+    yt.b .= 10
+end
+
+cache = (a = zeros(N), b = zeros(N))
+vt = CellBasedModels.TupleOfCachedArrays(cache, ns)
+
+# GPU
+cache = (a = CUDA.zeros(N), b = CUDA.zeros(N))
+xt_cuda = CellBasedModels.TupleOfCachedArrays(cache, ns)
+for i in 1:length(ns)
+    xt_cuda.a .= 1
+end
+
+cache = (a = CUDA.zeros(N), b = CUDA.zeros(N))
+yt_cuda = CellBasedModels.TupleOfCachedArrays(cache, ns)
+for i in 1:length(ns)
+    yt_cuda.a .= 10
+end
+
+cache = (a = CUDA.zeros(N), b = CUDA.zeros(N))
+vt_cuda = CellBasedModels.TupleOfCachedArrays(cache, ns)
+
+# Benchmarking
+cache = [zeros(N) for i in 1:length(ns)]
+xv = VectorOfArray(cache)
+for i in 1:length(ns)
+    xv.u[i] .= 1
+end
+
+cache = [zeros(N) for i in 1:length(ns)]
+yv = VectorOfArray(cache)
+for i in 1:length(ns)
+    yv.u[i] .= 10
+end
+
+cache = [zeros(N) for i in 1:length(ns)]
+vv = VectorOfArray(cache)
+
+x = tuple([zeros(N) .+ 1 for i in 1:length(ns)]...);
+y = tuple([zeros(N) .+ 10 for i in 1:length(ns)]...);
+v = tuple([zeros(N) for i in 1:length(ns)]...);
+
+println("\nBenchmarking RecursiveCachedArrays N = $N with sizes = $ns")
+println("=============================================================")
+
+@printf("%-35s", "Tuple Arrays:")
+@btime f_!(x,y,v)
+
+@printf("%-35s", "ArrayOfVectors:")
+@btime f!(xv,yv,vv)
+
+@printf("%-35s", "Tuple Array Views:")
+x_view = tuple([@views x[i][1:ns_vec[i]] for i in 1:length(ns)]...);
+y_view = tuple([@views y[i][1:ns_vec[i]] for i in 1:length(ns)]...);
+v_view = tuple([@views v[i][1:ns_vec[i]] for i in 1:length(ns)]...);
+@btime @views f_!(x_view,y_view,v_view)
+
+@printf("%-35s", "*TupleOfCachedArrays:")
+@btime f!(xt,yt,vt)
+
+x_cuda = tuple([CUDA.zeros(N).+ 1 for i in ns]...); 
+y_cuda = tuple([CUDA.zeros(N).+ 10 for i in ns]...); 
+v_cuda = tuple([CUDA.zeros(N) for i in ns]...);
+
+println()
+@printf("%-35s", "Tuple Array CUDA:")
+@btime f_!(x_cuda,y_cuda,v_cuda)
+
+@printf("%-35s", "Tuple Array Views CUDA:")
+x_cuda_view = tuple([@views x_cuda[i][1:ns_vec[i]] for i in 1:length(ns)]...);
+y_cuda_view = tuple([@views y_cuda[i][1:ns_vec[i]] for i in 1:length(ns)]...);
+v_cuda_view = tuple([@views v_cuda[i][1:ns_vec[i]] for i in 1:length(ns)]...);
+@btime @views f_!(x_cuda_view,y_cuda_view,v_cuda_view)
+
+@printf("%-35s", "*TupleOfCachedArrays CUDA:")
+@btime f!(xt_cuda,yt_cuda,vt_cuda)
+
+cache = (a = CUDA.zeros(N), b = CUDA.ones(N)) 
+vt = CellBasedModels.TupleOfCachedArrays(cache, ns)
+x = CUDA.zeros(N) .+ 1; y = CUDA.zeros(N) .+ 10; n = CUDA.CuArray([100,20]);
+
+println()
+@printf("%-35s", "Kernel Array CUDA:")
 @btime @cuda threads=254 f2!(x, y, n)
+
+@printf("%-35s", "*Kernel TupleOfCachedArrays CUDA:")
+@btime @cuda threads=254 f2!(vt)
