@@ -1,5 +1,6 @@
 using BenchmarkTools
 using CUDA
+using DifferentialEquations
 
 @testset "RecursiveCachedArrays" begin
 
@@ -48,6 +49,26 @@ using CUDA
     @cuda threads=254 f!(vt)
     @test CUDA.@allowscalar all(vt.a[1:ns[1]] .≈ 1) && all(vt.b[1:ns[2]] .≈ 1)
     @test CUDA.@allowscalar all(vt.a[ns[1]+1:end] .≈ 0) && all(vt.b[ns[2]+1:end] .≈ 1)
+
+    # ODE
+
+    function f!(du, u, p, t)
+        @. du = u * 0.1
+    end
+
+    cache = (a=CUDA.zeros(N), b=(c=CUDA.ones(N), d=CUDA.zeros(N)))
+    u = CellBasedModels.TupleOfCachedArrays(cache, ns)
+    u.a .= 10; u.b.c .= 20;
+    problem = ODEProblem(f!, u, (0.0, 1.0))
+    integrator = init(problem, Euler(), dt=0.1)  # just to
+    step!(integrator)  # just to test step! works
+
+    # using RecursiveArrayTools
+
+    # u = VectorOfArray([zeros(10), zeros(20)])
+    # problem = ODEProblem(f!, u, (0.0, 1.0))
+    # integrator = init(problem, Euler(), dt=0.1)  # just to
+    # step!(integrator)  # just to test step! works
 
 end
 

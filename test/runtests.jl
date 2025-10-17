@@ -4,16 +4,17 @@ using Test
 using CUDA   
 
 verbose = true
-benchmark = true #just for internal optimizations
+benchmark = false #just for internal optimizations
 
 @testset verbose=true "CellBasedModels.jl" begin
     using CUDA
     # include("testIndexing.jl")
     # include("testParameter.jl")
-    include("testRecursiveCachedArrays.jl")
+    # include("testRecursiveCachedArrays.jl")
     # include("testTypeIntegrators.jl")
     # include("testAgentGlobal.jl")
     # include("testABM.jl")
+    include("testAgentPoint.jl")
 end
 
 if benchmark

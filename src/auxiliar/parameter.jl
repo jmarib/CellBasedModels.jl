@@ -1,3 +1,8 @@
+DATATYPE = Dict(
+    Integer => Int,
+    AbstractFloat => Float64,
+    Bool => Bool,
+)
 
 """
     mutable struct Parameter{D <: DataType}
@@ -60,7 +65,15 @@ mutable struct Parameter{D}
                        defaultValue=nothing,
                        description::String="", _updated::Bool=false, _DE::Bool=false, _scope::Union{Symbol, Nothing}=nothing)
 
-        if !(dataType <: Real || dataType == Bool)
+        if dataType <: Integer
+            dataType = Integer
+        elseif dataType <: AbstractFloat
+            dataType = AbstractFloat
+        elseif dataType <: Bool
+            dataType = Bool
+        elseif dataType <: SArray
+            dataType = dataType
+        else
             error("Parameter dataType must be a subtype of Real or Bool. Found: $dataType")
         end
         if !(defaultValue === nothing || defaultValue isa dataType)
@@ -132,3 +145,5 @@ function parameterConvert(parameters; scope::Union{Symbol, Nothing}=nothing)
     values_tuple = Tuple(l)
     return NamedTuple{keys_tuple}(values_tuple)
 end
+
+dtype(parameter::Parameter{D}; isbits=false) where {D} = D in keys(DATATYPE) && isbits ? DATATYPE[D] : D

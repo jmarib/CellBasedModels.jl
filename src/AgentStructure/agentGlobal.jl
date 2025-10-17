@@ -17,7 +17,7 @@ Each property is expected to be a structure (usually created by `parameterConver
 This type is typically used to hold parameters shared among all agents
 or to define model-wide attributes.
 """
-struct AgentGlobal{N,T} <: AbstractAgent
+struct AgentGlobal{P} <: AbstractAgent
     _properties::NamedTuple
 end
 
@@ -42,9 +42,7 @@ global_agent = AgentGlobal(properties = props)
 """
 function AgentGlobal(; properties = (;))
     propertiesNew = parameterConvert(properties, scope = nothing)
-    names = keys(propertiesNew)
-    types = Tuple{[typeof(par).parameters[1] for par in values(propertiesNew)]...}
-    return AgentGlobal{names, types}(propertiesNew)
+    return AgentGlobal{typeof(propertiesNew)}(propertiesNew)
 end
 
 function Base.show(io::IO, x::AgentGlobal)
@@ -67,10 +65,9 @@ function Base.show(io::IO, x::AgentGlobal)
     println(io)
 end
 
-function Base.show(io::IO, ::Type{AgentGlobal{K,V}}) where {K,V}
-    valtypes = V.parameters  # tuple of types
+function Base.show(io::IO, ::Type{AgentGlobal{P}}) where {P}
     print(io, "AgentGlobal{properties=(")
-    for (i, (n, t)) in enumerate(zip(K, valtypes))
+    for (i, (n, t)) in enumerate(zip(keys(P), P.parameters))
         i > 1 && print(io, ", ")
         print(io, n, "::", t)
     end

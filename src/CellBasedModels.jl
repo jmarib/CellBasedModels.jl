@@ -1,5 +1,9 @@
 module CellBasedModels
 
+    using Adapt
+    using StaticArrays
+    using Printf
+
     hasCuda() = false
 
     #Auxiliar
@@ -9,7 +13,7 @@ module CellBasedModels
     include("./auxiliar/parameter.jl")
     include("./auxiliar/indexing.jl")
     include("./auxiliar/meta.jl")
-    include("./auxiliar/recursiveCachedArrays.jl")
+    # include("./auxiliar/recursiveCachedArrays.jl")
 
     # include("./baseStructs.jl")
     # include("./constants.jl")
@@ -44,9 +48,10 @@ module CellBasedModels
     # include("./AgentStructure/auxiliar.jl")
 
     #Agent
+    include("./AgentStructure/auxiliar.jl")
     export AgentGlobal
     include("./AgentStructure/agentGlobal.jl")
-    export AgentPoint
+    export AgentPoint, CommunityPoint
     include("./AgentStructure/agentPoint.jl")
         #Structure
     export ABM
@@ -68,8 +73,8 @@ module CellBasedModels
 
     #Community
     export update!
-    export CommunityGlobal
-    include("./CommunityStructure/communityGlobal.jl")
+    # export CommunityGlobal
+    # include("./CommunityStructure/communityGlobal.jl")
     export CommunityABM
     include("./CommunityStructure/communityABM.jl")
     # include("./CommunityStructure/communityStructure.jl")
