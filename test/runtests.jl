@@ -2,9 +2,11 @@
 using CellBasedModels
 using Test
 using CUDA   
+using BenchmarkTools
+using Printf
 
 verbose = true
-benchmark = false #just for internal optimizations
+benchmark = true #just for internal optimizations
 
 @testset verbose=true "CellBasedModels.jl" begin
     using CUDA
@@ -19,9 +21,10 @@ end
 
 if benchmark
 
-    using BenchmarkTools
-    using Printf
+    N = 100000
+    n = 10000
 
-    include("benchmarkRecursiveCachedArrays.jl")
+    # include("benchmarkRecursiveCachedArrays.jl")
+    include("benchmarkCommunityPoint.jl")
 
 end

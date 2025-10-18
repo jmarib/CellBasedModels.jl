@@ -2,9 +2,9 @@
 # AGENT STRUCTURE
 ######################################################################################################
 
-struct AgentPoint{D, P} <: AbstractAgent where {D <: UInt, P <: NamedTuple}
+struct AgentPoint{D, P, T} <: AbstractAgent where {D, P, T}
 
-    propertiesAgent::NamedTuple    # Dictionary to hold agent properties
+    propertiesAgent::NamedTuple{}    # Dictionary to hold agent properties
 
 end
 
@@ -45,12 +45,12 @@ function AgentPoint(
         n = dt for (k, dt) in pairs(propertiesAgentNew)
     )
 
-    return AgentPoint{dims, typeof(propertiesAgentNew)}(
+    return AgentPoint{dims, typeof(propertiesAgentNew).parameters[1], typeof(propertiesAgentNew).parameters[2]}(
         propertiesAgentNew
     )
 end
 
-Base.ndims(x::AgentPoint{D}) where D = D 
+Base.ndims(x::AgentPoint{D, P, T}) where {D, P, T} = D
 
 function Base.show(io::IO, x::AgentPoint)
     println(io, "AgentPoint with dimensions $(x._dims): \n")
@@ -67,9 +67,9 @@ function Base.show(io::IO, x::AgentPoint)
     println(io)
 end
 
-function Base.show(io::IO, ::Type{AgentPoint{D, P}}) where {D, P}
+function Base.show(io::IO, ::Type{AgentPoint{D, P, T}}) where {D, P, T}
     print(io, "AgentPoint{dims=", D, ", properties=(")
-    for (i, (n, t)) in enumerate(zip(P.parameters[1], P.parameters[2].parameters))
+    for (i, (n, t)) in enumerate(zip(P, P.parameters))
         i > 1 && print(io, ", ")
         print(io, n, "::", t.parameters[1])
     end
@@ -80,23 +80,23 @@ end
 # COMMUNITY AGENT POINT
 ######################################################################################################
 
-struct CommunityPoint{A, N, NC} <: AbstractCommunity where {A, N, NC}
+struct CommunityPoint{D, P, T, N, NC} <: AbstractCommunity where {D, P, T, N, NC}
 
-    _propertiesAgent::NamedTuple    # Dictionary to hold agent properties
-    _N::AbstractVector{<:Integer}
-    _NCache::AbstractVector{<:Integer}
-    _NNew::AbstractVector{<:Integer}
-    _idMax::AbstractVector{<:Integer}
-    _NFlag::AbstractVector{Bool}
+    _propertiesAgent::NamedTuple{P, T}    # Dictionary to hold agent properties
+    _N::SVector{1, Int}
+    _NCache::SVector{1, Int}
+    _NNew::SVector{1, Int}
+    _idMax::SVector{1, Int}
+    _NFlag::SVector{1, Bool}
 
 end
 Adapt.@adapt_structure CommunityPoint
 
 function CommunityPoint(
-        agent::AgentPoint,
+        agent::AgentPoint{D, P, T2},
         N::Integer=1,
         NCache::Union{Nothing, Integer}=nothing
-    )
+    ) where {D, P, T2}
 
     if N < 1
         error("N must be greater than 1. Found N=$N")
@@ -108,6 +108,7 @@ function CommunityPoint(
     end
 
     properties = NamedTuple{keys(agent.propertiesAgent)}(zeros(dtype(dt, isbits=true), NCache) for dt in values(agent.propertiesAgent))
+    properties.id[1:N] .= collect(1:N)
 
     _N = SVector{1, Int}([N])
     _NCache = SVector{1, Int}([NCache])
@@ -115,7 +116,7 @@ function CommunityPoint(
     _idMax = SVector{1, Int}([N])
     _NFlag = SVector{1, Bool}([false])
 
-    return CommunityPoint{typeof(agent), N, NCache}(
+    return CommunityPoint{D, P, typeof(values(properties)), N, NCache}(
         properties,
         _N,
         _NCache,
@@ -125,8 +126,33 @@ function CommunityPoint(
     )
 end
 
-Base.length(community::CommunityPoint) = community._N[1]
-@inline Base.size(community::CommunityPoint{A, N, NC}) where {A, N, NC} = (length(A.parameters[1]), N)
+function CommunityPoint(
+        _propertiesAgent,
+        _N,
+        _NCache,
+        _NNew,
+        _idMax,
+        _NFlag,
+    )
+
+    D = length(filter(k -> k in (:x, :y, :z), keys(_propertiesAgent)))
+    P = keys(_propertiesAgent)
+    T = typeof(values(_propertiesAgent))
+    N = _N[1]
+    NC = _NCache[1]
+
+    CommunityPoint{D, P, T, N, NC}(
+        _propertiesAgent,
+        _N,
+        _NCache,
+        _NNew,
+        _idMax,
+        _NFlag
+    )
+end
+
+Base.length(community::CommunityPoint{D, P, T, N, NC}) where {D, P, T, N, NC} = N
+@inline Base.size(community::CommunityPoint{D, P, T, N, NC}) where {D, P, T, N, NC} = (length(P), N)
 Base.ndims(community::CommunityPoint) = 2
 Base.ndims(community::Type{<:CommunityPoint}) = 2
 
@@ -138,8 +164,8 @@ function Base.iterate(community::CommunityPoint, state = 1)
     state >= length(community._propertiesAgent) + 1 ? nothing : (community[state], state + 1)
 end
 
-@generated function Base.getproperty(VA::CommunityPoint{T,N,NC}, s::Symbol) where {T,N,NC}
-    names = T.parameters[2].parameters[1]
+@generated function Base.getproperty(VA::CommunityPoint{D, P, T, N, NC}, s::Symbol) where {D, P, T, N, NC}
+    names = P
     # build a clause for each fieldname in T
     cases = [
         :(s === $(QuoteNode(name)) && return @views getfield(getfield(VA, :_propertiesAgent), $(QuoteNode(name)))[1:N])
@@ -192,7 +218,7 @@ end
     Broadcast.Broadcasted(bc.f, unpack_args_voa(i, bc.args))
 end
 
-function unpack_voa(x::CommunityPoint{A, N, NC}, i) where {A, N, NC} 
+function unpack_voa(x::CommunityPoint{D, P, T, N, NC}, i) where {D, P, T, N, NC}
     @views x._propertiesAgent[i][1:N]
 end
 
