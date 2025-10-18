@@ -107,7 +107,7 @@ function CommunityPoint(
         error("NCache must be greater than or equal to N. Found NCache=$NCache and N=$N")
     end
 
-    properties = NamedTuple{keys(agent.propertiesAgent)}(zeros(dtype(dt, isbits=true), N) for dt in values(agent.propertiesAgent))
+    properties = NamedTuple{keys(agent.propertiesAgent)}(zeros(dtype(dt, isbits=true), NCache) for dt in values(agent.propertiesAgent))
 
     _N = SVector{1, Int}([N])
     _NCache = SVector{1, Int}([NCache])
@@ -126,7 +126,7 @@ function CommunityPoint(
 end
 
 Base.length(community::CommunityPoint) = community._N[1]
-Base.size(community::CommunityPoint) = (community._N[1],)
+@inline Base.size(community::CommunityPoint{A, N, NC}) where {A, N, NC} = (length(A.parameters[1]), N)
 Base.ndims(community::CommunityPoint) = 2
 Base.ndims(community::Type{<:CommunityPoint}) = 2
 
@@ -136,6 +136,26 @@ end
 
 function Base.iterate(community::CommunityPoint, state = 1)
     state >= length(community._propertiesAgent) + 1 ? nothing : (community[state], state + 1)
+end
+
+@generated function Base.getproperty(VA::CommunityPoint{T,N,NC}, s::Symbol) where {T,N,NC}
+    names = T.parameters[2].parameters[1]
+    # build a clause for each fieldname in T
+    cases = [
+        :(s === $(QuoteNode(name)) && return @views getfield(getfield(VA, :_propertiesAgent), $(QuoteNode(name)))[1:N])
+        for name in names
+    ]
+
+    quote
+        if s === :_propertiesAgent; return getfield(VA, :_propertiesAgent); end
+        if s === :_N; return getfield(VA, :_N); end
+        if s === :_NCache; return getfield(VA, :_NCache); end
+        if s === :_NNew; return getfield(VA, :_NNew); end
+        if s === :_idMax; return getfield(VA, :_idMax); end
+        if s === :_NFlag; return getfield(VA, :_NFlag); end
+        $(cases...)
+        error("Unknown property: $s for $VA")
+    end
 end
 
 ## broadcasting
@@ -156,9 +176,12 @@ for (type, N_expr) in [
             bc::$type)
         bc = Broadcast.flatten(bc)
         N = $N_expr
+        n = dest._N[1]
         @inbounds for i in 1:N
-            dest_ = @views dest._propertiesAgent[i][1:dest._N[1]]
-            copyto!(dest_, unpack_voa(bc, i))
+            if eltype(dest._propertiesAgent[i]) <: AbstractFloat
+                dest_ = @views dest._propertiesAgent[i][1:n]
+                copyto!(dest_, unpack_voa(bc, i))
+            end
         end
         dest
     end
@@ -169,7 +192,9 @@ end
     Broadcast.Broadcasted(bc.f, unpack_args_voa(i, bc.args))
 end
 
-unpack_voa(x::CommunityPoint, i) = @views x._propertiesAgent[i][1:x._N[1]]
+function unpack_voa(x::CommunityPoint{A, N, NC}, i) where {A, N, NC} 
+    @views x._propertiesAgent[i][1:N]
+end
 
 # ######################################################################################################
 # # MACROS
