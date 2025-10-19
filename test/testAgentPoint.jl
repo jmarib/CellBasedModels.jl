@@ -5,6 +5,20 @@ using Adapt
 
 @testset verbose = true "ABM - Point" begin
 
+    # @testset "CommunityIterate" begin
+
+    #     iterator = CellBasedModels.CommunityIndices(
+    #         (
+    #             a = ((:a1, :a2), 10),
+    #             b = ((:b1, :b2, :b3), 5)
+    #         )
+    #     )
+    #     for (outer, inner, i) in iterator
+    #         @info "Outer: $outer, Inner: $inner, Index: $i"
+    #     end
+
+    # end
+
     @testset "Agent" begin
 
         for dims in 0:3
@@ -78,7 +92,10 @@ using Adapt
         community = CommunityPoint(agent, 3, 5)
         fODE!(du, u, p, t) = @. du.x = 5 * (u.x + 1.0)
         prob = ODEProblem(fODE!, community, (0.0, 1.0))
-        integrator = init(prob, Euler(), dt=0.1)
+        integrator = init(prob, Euler(), dt=1.0)
+        println("Before: ", integrator.u.x)
+        step!(integrator)
+        println("After: ", integrator.u.x)
 
         if CUDA.has_cuda()
 

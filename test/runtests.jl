@@ -24,7 +24,8 @@ if benchmark
     N = 100000
     n = 10000
 
+    # include("benchmarkCommunityIndices.jl")
     # include("benchmarkRecursiveCachedArrays.jl")
-    include("benchmarkCommunityPoint.jl")
+    # include("benchmarkCommunityPoint.jl")
 
 end

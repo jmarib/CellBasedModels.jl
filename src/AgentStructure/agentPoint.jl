@@ -153,8 +153,28 @@ end
 
 Base.length(community::CommunityPoint{D, P, T, N, NC}) where {D, P, T, N, NC} = N
 @inline Base.size(community::CommunityPoint{D, P, T, N, NC}) where {D, P, T, N, NC} = (length(P), N)
+
+CommunityIndices(cp::CommunityPoint{D,P,T,N,NC}) where {D,P,T,N,NC} =
+    CommunityIndices(float_axes(T), Base.OneTo(N))
+
+# Base.axes(community::CommunityPoint{D, P, T, N, NC}) where {D, P, T, N, NC} = (tuple(i for (i, dt) in enumerate(T) if eltype(dt) <: AbstractFloat), 1:N)
 Base.ndims(community::CommunityPoint) = 2
 Base.ndims(community::Type{<:CommunityPoint}) = 2
+Base.IndexStyle(CommunityPoint::CommunityPoint) = Base.IndexStyle(typeof(CommunityPoint))
+Base.IndexStyle(::Type{<:CommunityPoint}) = IndexCartesian()
+Base.CartesianIndices(community::CommunityPoint{D, P, T, N, NC}) where {D, P, T, N, NC} =
+    CartesianIndices((length(P), N))
+Base.getindex(cp::CommunityPoint, i::Symbol, j::Int) = cp._propertiesAgent[i][j]
+Base.getindex(cp::CommunityPoint, i::Int, j::Int) = cp._propertiesAgent[i][j]
+Base.getindex(cp::CommunityPoint, i::Symbol, :) = cp._propertiesAgent[i]
+Base.getindex(cp::CommunityPoint, i::Int, :) = cp._propertiesAgent[i]
+Base.getindex(cp::CommunityPoint{D, P, T, N, NC}, :, j::Int) where {D, P, T, N, NC} = NamedTuple{P}(
+    (cp._propertiesAgent[k][j] for k in keys(cp._propertiesAgent))
+)
+Base.setindex!(cp::CommunityPoint, value, i::Symbol, j::Int) = (cp._propertiesAgent[i][j] = value)
+Base.setindex!(cp::CommunityPoint, value, i::Int, j::Int) = (cp._propertiesAgent[i][j] = value)
+Base.setindex!(cp::CommunityPoint, value, index::CartesianIndex{2}) = (cp._propertiesAgent[index[1]][index[2]] = value)
+# Base.keys(cp::CommunityPoint) = keys(cp._propertiesAgent)
 
 function Base.getindex(community::CommunityPoint, i::Integer)
     community._propertiesAgent[i]
@@ -220,6 +240,38 @@ end
 
 function unpack_voa(x::CommunityPoint{D, P, T, N, NC}, i) where {D, P, T, N, NC}
     @views x._propertiesAgent[i][1:N]
+end
+
+# Integrator
+function Base.eltype(::Type{<:CommunityPoint{D, P, T, N, NC}}) where {D, P, T, N, NC}
+    for i in T.parameters
+        if i <: AbstractFloat
+            return eltype(i)
+        end
+    end
+    return Float64
+end
+
+function Base.zero(community::CommunityPoint{D, P, T, N, NC}) where {D, P, T, N, NC}
+
+    communityZero = CommunityPoint{D, P, T, N, NC}(
+            NamedTuple{P, T}(
+                similar(dt, eltype(dt)) for dt in values(community._propertiesAgent)               
+            ),
+            copy(community._N),
+            copy(community._NCache),
+            copy(community._NNew),
+            copy(community._idMax),
+            copy(community._NFlag),
+        )
+
+    for (dt, dtOld) in zip(values(communityZero._propertiesAgent), values(community._propertiesAgent))
+        if !(eltype(dt) <: AbstractFloat)
+            @views dt[1:N] .= dtOld[1:N]
+        end
+    end
+    
+    return communityZero
 end
 
 # ######################################################################################################
