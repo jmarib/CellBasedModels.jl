@@ -2,6 +2,8 @@ using BenchmarkTools
 using CUDA
 using DifferentialEquations
 using Adapt
+import StaticArrays: SizedVector
+import CellBasedModels: CommunityPointMeta
 
 @testset verbose = true "ABM - Point" begin
 
@@ -45,9 +47,9 @@ using Adapt
 
         agent = AgentPoint(2)
         community = CommunityPoint(agent, 2)
-        @test typeof(community) == CommunityPoint{2, (:x,:y,:id), Tuple{Vector{Float64},Vector{Float64},Vector{Int64}}, 3, 2, 2}
+        @test typeof(community) == CommunityPoint{CellBasedModels.CommunityPointMeta{SizedVector{1, Int, Vector{Int64}}, SizedVector{1, Bool, Vector{Bool}}}, 2, (:x,:y,:id), Tuple{Vector{Float64},Vector{Float64},Vector{Int64}}, 3, 2, 2}
         community = CommunityPoint(agent, 3, 5)
-        @test typeof(community) == CommunityPoint{2, (:x,:y,:id), Tuple{Vector{Float64},Vector{Float64},Vector{Int64}}, 3, 3, 5}
+        @test typeof(community) == CommunityPoint{CellBasedModels.CommunityPointMeta{SizedVector{1, Int, Vector{Int64}}, SizedVector{1, Bool, Vector{Bool}}}, 2, (:x,:y,:id), Tuple{Vector{Float64},Vector{Float64},Vector{Int64}}, 3, 3, 5}
         @test community._N[1] == 3 &&
             community._NCache[1] == 5 &&
             community._NNew[1] == 3 &&
@@ -68,7 +70,7 @@ using Adapt
 
         f!(x) = @. x = 5 * (x + 1.0)
 
-        CellBasedModels.setCopyParameters!(community, (:x, :velocity))
+        community = CellBasedModels.setCopyParameters(community, (:x, :velocity))
         f!(community)
         @test community.x == 5 .* ones(3)
         @test community.y == zeros(3)
@@ -88,13 +90,14 @@ using Adapt
         if CUDA.has_cuda()
 
             community = CommunityPoint(agent, 3, 5)
-            community_gpu = Adapt.adapt(CuArray, community)
+            community = CellBasedModels.setCopyParameters(community, (:x, :velocity))
+            community_gpu = toGPU(community)
 
             f_gpu!(x) = @. x = 5 * (x + 1.0)
 
             f_gpu!(community_gpu)
             @test Array(community_gpu.x) == 5 .* ones(3)
-            @test Array(community_gpu.y) == 5 .* ones(3)
+            @test Array(community_gpu.y) == zeros(3)
             @test Array(community_gpu.velocity) == 5 .* ones(3)
             @test Array(community_gpu.idea) == zeros(Int, 3)
             @test Array(community_gpu.ok) == zeros(Bool, 3)
@@ -106,14 +109,16 @@ using Adapt
                 for i in index:stride:community._N[1]
                     @inbounds x[i] = 5 * (x[i] + 1.0)
                 end
+                return
             end
 
             community = CommunityPoint(agent, 3, 5)
-            community_gpu = Adapt.adapt(CuArray, community)
-            CUDA.@cuda threads = 32 f_gpu_kernel!(community_gpu)
+            community = CellBasedModels.setCopyParameters(community, (:x,))
+            community_gpu = toGPU(community)
+            CUDA.@cuda f_gpu_kernel!(community_gpu)
 
             community = CommunityPoint(agent, 3, 5)
-            community_gpu = Adapt.adapt(CuArray, community)
+            community_gpu = toGPU(community)
             prob = ODEProblem(fODE!, community_gpu, (0.0, 1.0))
             integrator = init(prob, Euler(), dt=0.1, save_everystep=false)
             for i in 1:10

@@ -1,3 +1,6 @@
+function toCPU(x); x; end   # fallback definitions
+function toGPU(x); x; end
+
 # Generic unpackig for broadcasting
 
 @inline function unpack_voa(bc::Broadcast.Broadcasted{Style}, i) where {Style}

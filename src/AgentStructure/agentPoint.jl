@@ -79,18 +79,41 @@ end
 ######################################################################################################
 # COMMUNITY AGENT POINT
 ######################################################################################################
+# struct CommunityPoint{B, D, P, T, NP, N, NC} <: AbstractCommunity{T, N}
+struct CommunityPointMeta{S,G}
+    _N::S
+    _NCache::S
+    _NNew::S
+    _idMax::S
+    _NFlag::G
+end
+Adapt.@adapt_structure CommunityPointMeta
 
-# struct CommunityPoint{D, P, T, NP, N, NC} <: AbstractCommunity{T, N}
-struct CommunityPoint{D, P, T, NP, N, NC} <: AbstractCommunity where {D, P, T, NP, N, NC}
+function CommunityPointMeta(
+        _N,
+        _NCache,
+        _NNew,
+        _idMax,
+        _NFlag,
+    )
 
-    _propertiesAgent::NamedTuple{P, T}    # Dictionary to hold agent properties
-    _N::SVector{1, Int}
-    _NCache::SVector{1, Int}
-    _NNew::SVector{1, Int}
-    _idMax::SVector{1, Int}
-    _NFlag::SVector{1, Bool}
-    _propertiesCopy::SVector{NP, Bool}    # Dictionary to hold agent properties for copying
+    S = typeof(_N)
+    G = typeof(_NFlag)
 
+    CommunityPointMeta{S, G}(
+        _N,
+        _NCache,
+        _NNew,
+        _idMax,
+        _NFlag,
+    )
+end
+struct CommunityPoint{B, D, P, T, NP, N, NC} <: AbstractCommunity where {B, D, P, T, NP, N, NC}
+    _propertiesAgent::NamedTuple{P, T}
+    _meta::B
+    _propertiesCopy::SVector{NP, Bool}
+    _n::Int
+    _ncache::Int
 end
 Adapt.@adapt_structure CommunityPoint
 
@@ -114,67 +137,71 @@ function CommunityPoint(
 
     NP = length(P)
 
-    _N = SVector{1, Int}([N])
-    _NCache = SVector{1, Int}([NCache])
-    _NNew = SVector{1, Int}([N])
-    _idMax = SVector{1, Int}([N])
-    _NFlag = SVector{1, Bool}([false])
-    _propertiesCopy = SVector{NP, Bool}([false for _ in 1:NP])    # Dictionary to hold agent properties for copying
+    _N = SizedVector{1, Int}([N])
+    _NCache = SizedVector{1, Int}([NCache])
+    _NNew = SizedVector{1, Int}([N])
+    _idMax = SizedVector{1, Int}([N])
+    _NFlag = SizedVector{1, Bool}([false])
 
-    return CommunityPoint{D, P, typeof(values(properties)), NP, N, NCache}(
-        properties,
+    _meta = CommunityPointMeta(
         _N,
         _NCache,
         _NNew,
         _idMax,
         _NFlag,
-        _propertiesCopy
+    )
+
+    _propertiesCopy = SizedVector{NP, Bool}([false for _ in 1:NP])    # Dictionary to hold agent properties for copying
+
+    return CommunityPoint{typeof(_meta), D, P, typeof(values(properties)), NP, N, NCache}(
+        properties,
+        _meta,
+        _propertiesCopy,
+        N,
+        NCache,
     )
 end
 
 function CommunityPoint(
         _propertiesAgent,
-        _N,
-        _NCache,
-        _NNew,
-        _idMax,
-        _NFlag,
-        _propertiesCopy
+        _meta,
+        _propertiesCopy,
+        _n,
+        _ncache,
     )
 
+    B = typeof(_meta)
     D = length(filter(k -> k in (:x, :y, :z), keys(_propertiesAgent)))
     P = keys(_propertiesAgent)
     T = typeof(values(_propertiesAgent))
     NP = length(P)
-    N = _N[1]
-    NC = _NCache[1]
+    N = _n
+    NC = _ncache
 
-    CommunityPoint{D, P, T, NP, N, NC}(
+    CommunityPoint{B, D, P, T, NP, N, NC}(
         _propertiesAgent,
-        _N,
-        _NCache,
-        _NNew,
-        _idMax,
-        _NFlag,
-        _propertiesCopy
+        _meta,
+        _propertiesCopy,
+        N,
+        NC
     )
 end
 
-Base.length(community::CommunityPoint{D, P, T, NP, N, NC}) where {D, P, T, NP, N, NC} = N
-@inline Base.size(community::CommunityPoint{D, P, T, NP, N, NC}) where {D, P, T, NP, N, NC} = (NP, N)
+Base.length(community::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D, P, T, NP, N, NC} = N
+@inline Base.size(community::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D, P, T, NP, N, NC} = (NP, N)
 
-# Base.axes(community::CommunityPoint{D, P, T, NP, N, NC}) where {D, P, T, NP, N, NC} = (tuple(i for (i, dt) in enumerate(T) if eltype(dt) <: AbstractFloat), 1:N)
+# Base.axes(community::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D, P, T, NP, N, NC} = (tuple(i for (i, dt) in enumerate(T) if eltype(dt) <: AbstractFloat), 1:N)
 Base.ndims(community::CommunityPoint) = 2
 Base.ndims(community::Type{<:CommunityPoint}) = 2
 Base.IndexStyle(CommunityPoint::CommunityPoint) = Base.IndexStyle(typeof(CommunityPoint))
 Base.IndexStyle(::Type{<:CommunityPoint}) = IndexCartesian()
-Base.CartesianIndices(community::CommunityPoint{D, P, T, NP, N, NC}) where {D, P, T, NP, N, NC} =
+Base.CartesianIndices(community::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D, P, T, NP, N, NC} =
     CartesianIndices((NP, N))
 Base.getindex(cp::CommunityPoint, i::Symbol, j::Int) = cp._propertiesAgent[i][j]
 Base.getindex(cp::CommunityPoint, i::Int, j::Int) = cp._propertiesAgent[i][j]
 Base.getindex(cp::CommunityPoint, i::Symbol, :) = cp._propertiesAgent[i]
 Base.getindex(cp::CommunityPoint, i::Int, :) = cp._propertiesAgent[i]
-Base.getindex(cp::CommunityPoint{D, P, T, NP, N, NC}, :, j::Int) where {D, P, T, NP, N, NC} = NamedTuple{P}(
+Base.getindex(cp::CommunityPoint{B, D, P, T, NP, N, NC}, :, j::Int) where {B, D, P, T, NP, N, NC} = NamedTuple{P}(
     (cp._propertiesAgent[k][j] for k in keys(cp._propertiesAgent))
 )
 Base.setindex!(cp::CommunityPoint, value, i::Symbol, j::Int) = (cp._propertiesAgent[i][j] = value)
@@ -190,9 +217,13 @@ function Base.iterate(community::CommunityPoint, state = 1)
     state >= length(community._propertiesAgent) + 1 ? nothing : (community[state], state + 1)
 end
 
-@generated function Base.getproperty(VA::CommunityPoint{D, P, T, NP, N, NC}, s::Symbol) where {D, P, T, NP, N, NC}
+@generated function Base.getproperty(VA::CommunityPoint{B, D, P, T, NP, N, NC}, s::Symbol) where {B, D, P, T, NP, N, NC}
     names = P
     # build a clause for each fieldname in T
+    casesmeta = [
+        :(s === $(QuoteNode(name)) && return getfield(getfield(VA, :_meta), $(QuoteNode(name))))
+        for name in fieldnames(CommunityPointMeta)
+    ]
     cases = [
         :(s === $(QuoteNode(name)) && return @views getfield(getfield(VA, :_propertiesAgent), $(QuoteNode(name)))[1:N])
         for name in names
@@ -200,12 +231,11 @@ end
 
     quote
         if s === :_propertiesAgent; return getfield(VA, :_propertiesAgent); end
-        if s === :_N; return getfield(VA, :_N); end
-        if s === :_NCache; return getfield(VA, :_NCache); end
-        if s === :_NNew; return getfield(VA, :_NNew); end
-        if s === :_idMax; return getfield(VA, :_idMax); end
-        if s === :_NFlag; return getfield(VA, :_NFlag); end
+        if s === :_meta; return getfield(VA, :_meta); end
         if s === :_propertiesCopy; return getfield(VA, :_propertiesCopy); end
+        if s === :_n; return getfield(VA, :_n); end
+        if s === :_ncache; return getfield(VA, :_ncache); end
+        $(casesmeta...)
         $(cases...)
         error("Unknown property: $s for $VA")
     end
@@ -237,13 +267,13 @@ Base.Broadcast.result_style(::Base.Broadcast.AbstractArrayStyle{M}, ::CommunityP
 Broadcast.broadcastable(x::CommunityPoint) = x
 
 ## Copyto
-@eval @inline function Base.copy(dest::CommunityPoint{D, P, T, NP, N, NC}) where {D, P, T, NP, N, NC}
+@eval @inline function Base.copy(dest::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D, P, T, NP, N, NC}
 
     deepcopy(dest)
 
 end
 
-@eval @inline function Base.copy(dest::CommunityPoint{D, P, T, NP, N, NC}, subset::NTuple{P2, Symbol}) where {D, P, T, NP, N, NC, P2}
+@eval @inline function Base.copy(dest::CommunityPoint{B, D, P, T, NP, N, NC}, subset::NTuple{P2, Symbol}) where {B, D, P, T, NP, N, NC, P2}
 
     for s in subset
         if !(s in P)
@@ -251,26 +281,21 @@ end
         end
     end
 
-    CommunityPoint{D, P, T, NP, N, NC}(
+    CommunityPoint{B, D, P, T, NP, N, NC}(
         NamedTuple{P}(
             i in names(subset) ? copy(dest._propertiesAgent[i]) : dest._propertiesAgent[i] for i in P
         ),
-        dest._N,
-        dest._NCache,
-        dest._NNew,
-        dest._idMax,
-        dest._NFlag,
-        SVector{NP, Bool}([i in names(subset) ? true : false for i in P])    # Dictionary to hold agent properties for copying
+        dest._meta,
+        SizedVector{NP, Bool}([i in names(subset) ? true : false for i in P])    # Dictionary to hold agent properties for copying
     )
 
 end
 
-@eval @inline function Base.copyto!(dest::CommunityPoint{D, P, T, NP, N, NC},
-        bc::CommunityPoint{D, P, T, NP, N, NC2}) where {D, P, T, NP, N, NC, NC2}
-    n = dest._N[1]
+@eval @inline function Base.copyto!(dest::CommunityPoint{B, D, P, T, NP, N, NC},
+        bc::CommunityPoint{B, D, P, T, NP, N, NC2}) where {B, D, P, T, NP, N, NC, NC2}
     @inbounds for i in 1:NP
         if bc._propertiesCopy[i]
-            @views dest._propertiesAgent[i][1:n] .= bc._propertiesAgent[i][1:n]
+            @views dest._propertiesAgent[i][1:N] .= bc._propertiesAgent[i][1:N]
         end
     end
     dest
@@ -281,13 +306,12 @@ for type in [
         Broadcast.Broadcasted{<:CommunityPointStyle},
     ]
 
-    @eval @inline function Base.copyto!(dest::CommunityPoint{D, P, T, NP, N, NC},
-            bc::$type) where {D, P, T, NP, N, NC}
+    @eval @inline function Base.copyto!(dest::CommunityPoint{B, D, P, T, NP, N, NC},
+            bc::$type) where {B, D, P, T, NP, N, NC}
         bc = Broadcast.flatten(bc)
-        n = dest._N[1]
         @inbounds for i in 1:NP
             if dest._propertiesCopy[i]
-                dest_ = @views dest._propertiesAgent[i][1:n]
+                dest_ = @views dest._propertiesAgent[i][1:N]
                 copyto!(dest_, unpack_voa(bc, i))
             end
         end
@@ -300,12 +324,12 @@ end
     Broadcast.Broadcasted(bc.f, unpack_args_voa(i, bc.args))
 end
 
-function unpack_voa(x::CommunityPoint{D, P, T, NP, N, NC}, i) where {D, P, T, NP, N, NC}
+function unpack_voa(x::CommunityPoint{B, D, P, T, NP, N, NC}, i) where {B, D, P, T, NP, N, NC}
     @views x._propertiesAgent[i][1:N]
 end
 
 # Integrator
-function Base.eltype(::Type{<:CommunityPoint{D, P, T, NP, N, NC}}) where {D, P, T, NP, N, NC}
+function Base.eltype(::Type{<:CommunityPoint{B, D, P, T, NP, N, NC}}) where {B, D, P, T, NP, N, NC}
     for i in T.parameters
         if i <: AbstractFloat
             return eltype(i)
@@ -314,22 +338,20 @@ function Base.eltype(::Type{<:CommunityPoint{D, P, T, NP, N, NC}}) where {D, P, 
     return Float64
 end
 
-function Base.zero(community::CommunityPoint{D, P, T, NP, N, NC}) where {D, P, T, NP, N, NC}
+function Base.zero(community::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D, P, T, NP, N, NC}
 
-    communityZero = CommunityPoint{D, P, T, NP, N, NC}(
+    communityZero = CommunityPoint{B, D, P, T, NP, N, NC}(
             NamedTuple{P, T}(
-                similar(dt, eltype(dt)) for dt in values(community._propertiesAgent)               
+                c ? similar(dt, eltype(dt)) : dt for (dt, c) in zip(values(community._propertiesAgent), community._propertiesCopy)               
             ),
-            copy(community._N),
-            copy(community._NCache),
-            copy(community._NNew),
-            copy(community._idMax),
-            copy(community._NFlag),
-            copy(community._propertiesCopy)
+            community._meta,
+            community._propertiesCopy,
+            N,
+            NC
         )
 
-    for (dt, dtOld) in zip(values(communityZero._propertiesAgent), values(community._propertiesAgent))
-        if !(eltype(dt) <: AbstractFloat)
+    for (dt, dtOld, c) in zip(values(communityZero._propertiesAgent), values(community._propertiesAgent), community._propertiesCopy)
+        if c
             @views dt[1:N] .= dtOld[1:N]
         end
     end
@@ -337,7 +359,7 @@ function Base.zero(community::CommunityPoint{D, P, T, NP, N, NC}) where {D, P, T
     return communityZero
 end
 
-function setCopyParameters!(community::CommunityPoint{D, P, T, NP, N, NC}, params::NTuple{P2, Symbol}) where {D, P, T, NP, N, NC, P2}
+function setCopyParameters(community::CommunityPoint{B, D, P, T, NP, N, NC}, params::NTuple{P2, Symbol}) where {B, D, P, T, NP, N, NC, P2}
 
     for s in params
         if !(s in P)
@@ -345,21 +367,35 @@ function setCopyParameters!(community::CommunityPoint{D, P, T, NP, N, NC}, param
         end
     end
 
-    community._propertiesCopy .= [i in params ? true : false for i in P]
+    _propertiesCopy = [i in params ? true : false for i in P]
 
-    return nothing
+    CommunityPoint{B, D, P, T, NP, N, NC}(
+        community._propertiesAgent,
+        community._meta,
+        _propertiesCopy,
+        N,
+        NC,
+    )
 end
 
-function addCopyParameter!(community::CommunityPoint{D, P, T, NP, N, NC}, param::Symbol) where {D, P, T, NP, N, NC}
+function addCopyParameter!(community::CommunityPoint{B, D, P, T, NP, N, NC}, param::Symbol) where {B, D, P, T, NP, N, NC}
 
     if !(param in P)
         error("Property $param not found in CommunityPoint.")
     end
 
     idx = findfirst(==(param), P)
-    community._propertiesCopy[idx] = true
+    _propertiesCopy = [j || i == idx ? true : false for (i,j) in enumerate(P)]
 
-    return nothing
+    community = CommunityPoint{B, D, P, T, NP, N, NC}(
+        community._propertiesAgent,
+        community._meta,
+        _propertiesCopy,
+        N,
+        NC,
+    )
+
+    return
 end
 
 # ######################################################################################################
