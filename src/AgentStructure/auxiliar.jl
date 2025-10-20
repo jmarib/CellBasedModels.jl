@@ -53,3 +53,9 @@ function Base.iterate(ci::CommunityIndices, state=(1, 1, 1))
     # yield current triple, and increment array index
     ((outer_key, inner_key, i_array), (i_outer, i_inner, i_array + 1))
 end
+
+import RecursiveArrayTools: recursivecopy!
+
+function recursivecopy!(b, a)
+    Base.copyto!(b, a)
+end

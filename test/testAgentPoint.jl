@@ -5,20 +5,6 @@ using Adapt
 
 @testset verbose = true "ABM - Point" begin
 
-    # @testset "CommunityIterate" begin
-
-    #     iterator = CellBasedModels.CommunityIndices(
-    #         (
-    #             a = ((:a1, :a2), 10),
-    #             b = ((:b1, :b2, :b3), 5)
-    #         )
-    #     )
-    #     for (outer, inner, i) in iterator
-    #         @info "Outer: $outer, Inner: $inner, Index: $i"
-    #     end
-
-    # end
-
     @testset "Agent" begin
 
         for dims in 0:3
@@ -90,12 +76,13 @@ using Adapt
         @test community.ok == zeros(Bool, 3)
 
         community = CommunityPoint(agent, 3, 5)
-        fODE!(du, u, p, t) = @. du.x = 5 * (u.x + 1.0)
+        fODE!(du, u, p, t) = @. du.x = 1
         prob = ODEProblem(fODE!, community, (0.0, 1.0))
-        integrator = init(prob, Euler(), dt=1.0)
-        println("Before: ", integrator.u.x)
-        step!(integrator)
-        println("After: ", integrator.u.x)
+        integrator = init(prob, Euler(), dt=0.1, save_everystep=false)
+        for i in 1:10
+            step!(integrator)
+        end
+        @test all(integrator.u.x .≈ 1.)
 
         if CUDA.has_cuda()
 
@@ -111,10 +98,7 @@ using Adapt
             @test Array(community_gpu.idea) == zeros(Int, 3)
             @test Array(community_gpu.ok) == zeros(Bool, 3)
 
-            community = CommunityPoint(agent, 3, 5)
-            community_gpu = Adapt.adapt(CuArray, community)
-
-            function f_gpu!(community) 
+            function f_gpu_kernel!(community) 
                 index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
                 stride = gridDim().x * blockDim().x
                 x = community.x
@@ -123,8 +107,18 @@ using Adapt
                 end
             end
 
-            CUDA.@cuda threads=32 f_gpu!(community_gpu)
-            @test Array(community_gpu.x) == 5 .* ones(3)
+            community = CommunityPoint(agent, 3, 5)
+            community_gpu = Adapt.adapt(CuArray, community)
+            CUDA.@cuda threads = 32 f_gpu_kernel!(community_gpu)
+
+            community = CommunityPoint(agent, 3, 5)
+            community_gpu = Adapt.adapt(CuArray, community)
+            prob = ODEProblem(fODE!, community_gpu, (0.0, 1.0))
+            integrator = init(prob, Euler(), dt=0.1, save_everystep=false)
+            for i in 1:10
+                step!(integrator)
+            end
+            @test all(integrator.u.x .≈ 1.)
 
         end
 

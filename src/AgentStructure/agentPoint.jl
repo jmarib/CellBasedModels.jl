@@ -80,6 +80,7 @@ end
 # COMMUNITY AGENT POINT
 ######################################################################################################
 
+# struct CommunityPoint{D, P, T, N, NC} <: AbstractCommunity{T, N}
 struct CommunityPoint{D, P, T, N, NC} <: AbstractCommunity where {D, P, T, N, NC}
 
     _propertiesAgent::NamedTuple{P, T}    # Dictionary to hold agent properties
@@ -207,15 +208,42 @@ end
 ## broadcasting
 
 struct CommunityPointStyle{N} <: Broadcast.AbstractArrayStyle{N} end
+
+# Allow constructing the style from Val or Int
 CommunityPointStyle(::Val{N}) where {N} = CommunityPointStyle{N}()
+CommunityPointStyle(N::Int) = CommunityPointStyle{N}()
+
+# Your CommunityPoint acts like a 2D array
+Base.BroadcastStyle(::Type{<:CommunityPoint}) = CommunityPointStyle{2}()
+
+# Combine styles safely
+Base.Broadcast.result_style(::CommunityPointStyle{M}) where {M} =
+    CommunityPointStyle{M}()
+Base.Broadcast.result_style(::CommunityPointStyle{M}, ::CommunityPointStyle{N}) where {M,N} =
+    CommunityPointStyle{max(M,N)}()
+Base.Broadcast.result_style(::CommunityPointStyle{M}, ::Base.Broadcast.AbstractArrayStyle{N}) where {M,N} =
+    CommunityPointStyle{max(M,N)}()
+Base.Broadcast.result_style(::Base.Broadcast.AbstractArrayStyle{M}, ::CommunityPointStyle{N}) where {M,N} =
+    CommunityPointStyle{max(M,N)}()
+
+# Base.length(::CellBasedModels.CommunityPointStyle{N}) where {N} = N
 
 Broadcast.broadcastable(x::CommunityPoint) = x
 
 ## Copyto
 
+@eval @inline function Base.copyto!(dest::CommunityPoint{D, P, T, N, NC},
+        bc::CommunityPoint{D, P, T, N, NC2}) where {D, P, T, N, NC, NC2}
+    n = dest._N[1]
+    @inbounds for i in 1:length(P)
+        @views dest._propertiesAgent[i][1:n] .= bc._propertiesAgent[i][1:n]
+    end
+    dest
+end
+
 for (type, N_expr) in [
         (Broadcast.Broadcasted{<:CommunityPoint}, :(narrays(bc))),
-        (Broadcast.Broadcasted{<:Broadcast.DefaultArrayStyle}, :(length(dest._propertiesAgent))),
+        (Broadcast.Broadcasted{<:CommunityPointStyle}, :(length(dest._propertiesAgent))),
     ]
 
     @eval @inline function Base.copyto!(dest::CommunityPoint,
