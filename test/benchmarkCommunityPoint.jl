@@ -83,5 +83,3 @@ fsalfirst = integrator.fsalfirst
 # println(uprev, dt, fsalfirst)
 # @btime f2(u, uprev, dt, fsalfirst)
 # @btime f3(u, uprev, dt, fsalfirst)
-
-println(@macroexpand(DifferentialEquations.DiffEqBase.@.. broadcast=true u=uprev + dt * fsalfirst))

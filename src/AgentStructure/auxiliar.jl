@@ -55,7 +55,8 @@ function Base.iterate(ci::CommunityIndices, state=(1, 1, 1))
 end
 
 import RecursiveArrayTools: recursivecopy!
+import Base: copyto!
 
 function recursivecopy!(b, a)
-    Base.copyto!(b, a)
+    copyto!(b, a)
 end

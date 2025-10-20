@@ -45,9 +45,9 @@ using Adapt
 
         agent = AgentPoint(2)
         community = CommunityPoint(agent, 2)
-        @test typeof(community) == CommunityPoint{2, (:x,:y,:id), Tuple{Vector{Float64},Vector{Float64},Vector{Int64}}, 2, 2}
+        @test typeof(community) == CommunityPoint{2, (:x,:y,:id), Tuple{Vector{Float64},Vector{Float64},Vector{Int64}}, 3, 2, 2}
         community = CommunityPoint(agent, 3, 5)
-        @test typeof(community) == CommunityPoint{2, (:x,:y,:id), Tuple{Vector{Float64},Vector{Float64},Vector{Int64}}, 3, 5}
+        @test typeof(community) == CommunityPoint{2, (:x,:y,:id), Tuple{Vector{Float64},Vector{Float64},Vector{Int64}}, 3, 3, 5}
         @test community._N[1] == 3 &&
             community._NCache[1] == 5 &&
             community._NNew[1] == 3 &&
@@ -68,9 +68,10 @@ using Adapt
 
         f!(x) = @. x = 5 * (x + 1.0)
 
+        CellBasedModels.setCopyParameters!(community, (:x, :velocity))
         f!(community)
         @test community.x == 5 .* ones(3)
-        @test community.y == 5 .* ones(3)
+        @test community.y == zeros(3)
         @test community.velocity == 5 .* ones(3)
         @test community.idea == zeros(Int, 3)
         @test community.ok == zeros(Bool, 3)
