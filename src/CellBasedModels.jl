@@ -50,8 +50,8 @@ module CellBasedModels
     #Agent
     export toCPU, toGPU
     include("./AgentStructure/auxiliar.jl")
-    export AgentGlobal
-    include("./AgentStructure/agentGlobal.jl")
+    # export AgentGlobal
+    # include("./AgentStructure/agentGlobal.jl")
     export AgentPoint, CommunityPoint
     include("./AgentStructure/agentPoint.jl")
         #Structure

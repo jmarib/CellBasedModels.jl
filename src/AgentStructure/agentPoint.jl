@@ -178,6 +178,10 @@ function CommunityPoint(
     N = _n
     NC = _ncache
 
+    if NP != length(P)
+        error("Length of _propertiesAgent does not match NCache.")
+    end
+
     CommunityPoint{B, D, P, T, NP, N, NC}(
         _propertiesAgent,
         _meta,
@@ -185,6 +189,27 @@ function CommunityPoint(
         N,
         NC
     )
+end
+
+function Base.show(io::IO, x::CommunityPoint{B, D}) where {B, D}
+    println(io, "CommunityPoint with dimensions $D: \n")
+    println(io, @sprintf("\t%-15s %-15s", "Name", "DataType"))
+    println(io, "\t" * repeat("-", 85))
+    for ((name, par), c) in zip(pairs(x._propertiesAgent), x._propertiesCopy)
+        println(io, @sprintf("\t%-15s %-15s", 
+            c ? string("*", name) : string(name),
+            typeof(par)))
+    end
+    println(io)
+end
+
+function Base.show(io::IO, ::Type{CommunityPoint{B, D, P, T, NP, N, NC}}) where {B, D, P, T, NP, N, NC}
+    print(io, "CommunityPoint{dims=", D, ", N=", N, ", NCache=", NC, ", properties=(")
+    for (i, (n, t)) in enumerate(zip(P, P.parameters))
+        i > 1 && print(io, ", ")
+        print(io, n, "::", t.parameters[1])
+    end
+    print(io, ")}")
 end
 
 Base.length(community::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D, P, T, NP, N, NC} = N
