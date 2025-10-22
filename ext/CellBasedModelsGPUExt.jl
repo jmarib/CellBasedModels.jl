@@ -3,7 +3,7 @@ module CellBasedModelsGPUExt
     using CellBasedModels
     using CUDA
     using Adapt
-    import CellBasedModels: CommunityPointMeta, toCPU, toGPU
+    import CellBasedModels: CommunityPointMeta, CommunityPointIterator, toCPU, toGPU
     import CUDA: CuArray
     import StaticArrays: SizedVector
 

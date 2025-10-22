@@ -19,12 +19,12 @@ function AgentPoint(
         x = dims >= 1 ? Parameter(AbstractFloat, description="Position in x (protected parameter)", dimensions=:L, _scope=:agent) : nothing,
         y = dims >= 2 ? Parameter(AbstractFloat, description="Position in y (protected parameter)", dimensions=:L, _scope=:agent) : nothing,
         z = dims >= 3 ? Parameter(AbstractFloat, description="Position in z (protected parameter)", dimensions=:L, _scope=:agent) : nothing,
-        id = Parameter(Integer, description="Unique identifier (protected parameter)", _scope=:agent),
+        # id = Parameter(Integer, description="Unique identifier (protected parameter)", _scope=:agent),
         # _N = dims >= 0 ? Parameter(Int, description="Number of agents (protected parameter)") : nothing,
         # _NCache = dims >= 0 ? Parameter(Int, description="Maximum number of preallocated agents (protected parameter)") : nothing,
         # _NNew = dims >= 0 ? Parameter(Int, description="Number of new agents added in the current step (protected parameter)") : nothing,
         # _idMax = dims >= 0 ? Parameter(Int, description="Maximum unique identifier assigned (protected parameter)") : nothing,
-        # _NFlag = dims >= 0 ? Parameter(Bool, description="Flag indicating if the number of agents exceeded the preallocated maximum (protected parameter)") : nothing,
+        # _overflowFlag = dims >= 0 ? Parameter(Bool, description="Flag indicating if the number of agents exceeded the preallocated maximum (protected parameter)") : nothing,
     )
 
     # Remove keys with value `nothing`
@@ -60,8 +60,8 @@ function Base.show(io::IO, x::AgentPoint)
         println(io, @sprintf("\t%-15s %-15s %-15s %-20s %-s", 
             name, 
             string(par.dataType), 
-            par.dimensions == nothing ? "" : string(par.dimensions),
-            par.defaultValue == nothing ? "" : string(par.defaultValue), 
+            par.dimensions === nothing ? "" : string(par.dimensions),
+            par.defaultValue === nothing ? "" : string(par.defaultValue), 
             par.description))
     end
     println(io)
@@ -69,7 +69,7 @@ end
 
 function Base.show(io::IO, ::Type{AgentPoint{D, P, T}}) where {D, P, T}
     print(io, "AgentPoint{dims=", D, ", properties=(")
-    for (i, (n, t)) in enumerate(zip(P, P.parameters))
+    for (i, (n, t)) in enumerate(zip(P, T.parameters))
         i > 1 && print(io, ", ")
         print(io, n, "::", t.parameters[1])
     end
@@ -80,12 +80,15 @@ end
 # COMMUNITY AGENT POINT
 ######################################################################################################
 # struct CommunityPoint{B, D, P, T, NP, N, NC} <: AbstractCommunity{T, N}
-struct CommunityPointMeta{S,G}
+struct CommunityPointMeta{S, F, E, G}
     _N::S
     _NCache::S
     _NNew::S
     _idMax::S
-    _NFlag::G
+    _id::F
+    _removedIDs::E
+    _reorderedFlag::G
+    _overflowFlag::G
 end
 Adapt.@adapt_structure CommunityPointMeta
 
@@ -94,26 +97,66 @@ function CommunityPointMeta(
         _NCache,
         _NNew,
         _idMax,
-        _NFlag,
+        _id,
+        _removedIDs,
+        _reorderedFlag,
+        _overflowFlag,
     )
 
     S = typeof(_N)
-    G = typeof(_NFlag)
+    F = typeof(_id)
+    E = typeof(_removedIDs)
+    G = typeof(_overflowFlag)
 
-    CommunityPointMeta{S, G}(
+    CommunityPointMeta{S, F, E, G}(
         _N,
         _NCache,
         _NNew,
         _idMax,
-        _NFlag,
+        _id,
+        _removedIDs,
+        _reorderedFlag,
+        _overflowFlag,
     )
 end
+
+function CommunityPointMeta(
+        N::Int,
+        NCache::Int,
+)
+    _N = SizedVector{1, Int}([N])
+    _NCache = SizedVector{1, Int}([NCache])
+    _NNew = SizedVector{1, Int}([N])
+    _idMax = SizedVector{1, Int}([N])
+    _id = SizedVector{NCache, Int}(zeros(Int, NCache))
+    _id[1:N] = 1:N
+    _removedIDs = SizedVector{NCache, Int}(zeros(Int, NCache))
+    _reorderedFlag = SizedVector{1, Bool}([false])
+    _overflowFlag = SizedVector{1, Bool}([false])
+
+    S = typeof(_N)
+    F = typeof(_id)
+    E = typeof(_removedIDs)
+    G = typeof(_overflowFlag)
+
+    CommunityPointMeta{S, F, E, G}(
+        _N,
+        _NCache,
+        _NNew,
+        _idMax,
+        _id,
+        _removedIDs,
+        _reorderedFlag,
+        _overflowFlag,
+    )
+end
+
 struct CommunityPoint{B, D, P, T, NP, N, NC} <: AbstractCommunity where {B, D, P, T, NP, N, NC}
     _propertiesAgent::NamedTuple{P, T}
     _meta::B
     _propertiesCopy::SVector{NP, Bool}
-    _n::Int
-    _ncache::Int
+    N::Int
+    NCache::Int
 end
 Adapt.@adapt_structure CommunityPoint
 
@@ -133,22 +176,12 @@ function CommunityPoint(
     end
 
     properties = NamedTuple{keys(agent.propertiesAgent)}(zeros(dtype(dt, isbits=true), NCache) for dt in values(agent.propertiesAgent))
-    properties.id[1:N] .= collect(1:N)
 
     NP = length(P)
 
-    _N = SizedVector{1, Int}([N])
-    _NCache = SizedVector{1, Int}([NCache])
-    _NNew = SizedVector{1, Int}([N])
-    _idMax = SizedVector{1, Int}([N])
-    _NFlag = SizedVector{1, Bool}([false])
-
     _meta = CommunityPointMeta(
-        _N,
-        _NCache,
-        _NNew,
-        _idMax,
-        _NFlag,
+        N,
+        NCache,
     )
 
     _propertiesCopy = SizedVector{NP, Bool}([false for _ in 1:NP])    # Dictionary to hold agent properties for copying
@@ -166,8 +199,8 @@ function CommunityPoint(
         _propertiesAgent,
         _meta,
         _propertiesCopy,
-        _n,
-        _ncache,
+        N,
+        NCache,
     )
 
     B = typeof(_meta)
@@ -175,24 +208,22 @@ function CommunityPoint(
     P = keys(_propertiesAgent)
     T = typeof(values(_propertiesAgent))
     NP = length(P)
-    N = _n
-    NC = _ncache
 
     if NP != length(P)
         error("Length of _propertiesAgent does not match NCache.")
     end
 
-    CommunityPoint{B, D, P, T, NP, N, NC}(
+    CommunityPoint{B, D, P, T, NP, N, NCache}(
         _propertiesAgent,
         _meta,
         _propertiesCopy,
         N,
-        NC
+        NCache
     )
 end
 
-function Base.show(io::IO, x::CommunityPoint{B, D}) where {B, D}
-    println(io, "CommunityPoint with dimensions $D: \n")
+function Base.show(io::IO, x::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D, P, T, NP, N, NC}
+    println(io, "CommunityPoint $D D N=$N NCache=$NC: \n")
     println(io, @sprintf("\t%-15s %-15s", "Name", "DataType"))
     println(io, "\t" * repeat("-", 85))
     for ((name, par), c) in zip(pairs(x._propertiesAgent), x._propertiesCopy)
@@ -203,14 +234,14 @@ function Base.show(io::IO, x::CommunityPoint{B, D}) where {B, D}
     println(io)
 end
 
-function Base.show(io::IO, ::Type{CommunityPoint{B, D, P, T, NP, N, NC}}) where {B, D, P, T, NP, N, NC}
-    print(io, "CommunityPoint{dims=", D, ", N=", N, ", NCache=", NC, ", properties=(")
-    for (i, (n, t)) in enumerate(zip(P, P.parameters))
-        i > 1 && print(io, ", ")
-        print(io, n, "::", t.parameters[1])
-    end
-    print(io, ")}")
-end
+# function Base.show(io::IO, ::Type{CommunityPoint{B, D, P, T, NP, N, NC}}) where {B, D, P, T, NP, N, NC}
+#     print(io, "CommunityPoint{dims=", D, ", N=", N, ", NCache=", NC, ", properties=(")
+#     for (i, (n, t)) in enumerate(zip(P, T.parameters))
+#         i > 1 && print(io, ", ")
+#         print(io, n, "::", t.parameters[1])
+#     end
+#     print(io, ")}")
+# end
 
 Base.length(community::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D, P, T, NP, N, NC} = N
 @inline Base.size(community::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D, P, T, NP, N, NC} = (NP, N)
@@ -238,17 +269,9 @@ function Base.getindex(community::CommunityPoint, i::Integer)
     community._propertiesAgent[i]
 end
 
-function Base.iterate(community::CommunityPoint, state = 1)
-    state >= length(community._propertiesAgent) + 1 ? nothing : (community[state], state + 1)
-end
-
 @generated function Base.getproperty(VA::CommunityPoint{B, D, P, T, NP, N, NC}, s::Symbol) where {B, D, P, T, NP, N, NC}
     names = P
     # build a clause for each fieldname in T
-    casesmeta = [
-        :(s === $(QuoteNode(name)) && return getfield(getfield(VA, :_meta), $(QuoteNode(name))))
-        for name in fieldnames(CommunityPointMeta)
-    ]
     cases = [
         :(s === $(QuoteNode(name)) && return @views getfield(getfield(VA, :_propertiesAgent), $(QuoteNode(name)))[1:N])
         for name in names
@@ -258,9 +281,8 @@ end
         if s === :_propertiesAgent; return getfield(VA, :_propertiesAgent); end
         if s === :_meta; return getfield(VA, :_meta); end
         if s === :_propertiesCopy; return getfield(VA, :_propertiesCopy); end
-        if s === :_n; return getfield(VA, :_n); end
-        if s === :_ncache; return getfield(VA, :_ncache); end
-        $(casesmeta...)
+        if s === :N; return getfield(VA, :N); end
+        if s === :NCache; return getfield(VA, :NCache); end
         $(cases...)
         error("Unknown property: $s for $VA")
     end
@@ -423,111 +445,58 @@ function addCopyParameter!(community::CommunityPoint{B, D, P, T, NP, N, NC}, par
     return
 end
 
-# ######################################################################################################
-# # MACROS
-# ######################################################################################################
-# macro loopOverAgentPoint(name::Symbol, iterator::Symbol, code::Expr)
+function Base.iterate(community::CommunityPoint, state = 1)
+    state >= community.N + 1 ? nothing : (state, state + 1)
+end
 
-#     N__ = Symbol(name, "__N")
 
-#     if COMPILE_PLATFORM == :CPU
+######################################################################################################
+# Iterator
+######################################################################################################
+struct CommunityPointIterator{B}
+    N::Int
+end
 
-#         return quote
-#             Threads.@inloops @inbounds for $iterator in 1:$N__
-#                 $(code)
-#             end
-#         end
+function loopOverAgents(community::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D, P, T, NP, N, NC}
+    CommunityPointIterator{B}(N)
+end
 
-#     elseif COMPILE_PLATFORM == :GPU
+function Base.iterate(iterator::CommunityPointIterator, state = 1)
+    state >= iterator.N + 1 ? nothing : (state, state + 1)
+end
 
-#         return quote
-#             @inbounds for $iterator in stride_:stride_:$N
-#                 $(code)
-#             end
-#         end
+# Necessary for working with Threads
+Base.firstindex(iterator::CommunityPointIterator) = 1
+Base.lastindex(iterator::CommunityPointIterator) = iterator.N
+Base.length(iterator::CommunityPointIterator) = iterator.N
+Base.getindex(iterator::CommunityPointIterator, i::Int) = i
 
-#     end
 
-# end
+######################################################################################################
+# Kernel functions
+######################################################################################################
+function removeAgent!(community::CommunityPoint, id::Int)
+    community._meta._reorderedFlag[1] = true
+    community._meta._removedIDs[id] = true
+end
 
-# macro addAgentPoint(name::Symbol, args...)
+@generated function addAgent!(community::CommunityPoint{B, D, P, T, NP, N, NC}, kwargs::NamedTuple{P, T2}) where {B, D, P, T, NP, N, NC, P2, T2}
 
-#     N = Symbol(name, "__N")
-#     NCache = Symbol(name, "__NCache")
-#     NNew = Symbol(name, "__NNew")
-#     idMax = Symbol(name, "__idMax")
-#     NFlag = Symbol(name, "__NFlag")
+    cases = [
+        :(community.$name[newPos] = kwargs.$name)
+        for name in P
+    ]
 
-#     id = Symbol(name, "__id")
-
-#     N__ = Symbol(name, "__N")
-
-#     if COMPILE_PLATFORM == :CPU
-
-#         return quote
-#                 i1New_ = Threads.atomic_add!($NNew,1)
-#                 idNew_ = Threads.atomic_add!($idMax,1)
-#                 if $NNew > $NCache
-#                     $NFlag = true
-#                 else
-#                     $id[i1New_] = idNew_
-#                     $code
-#                 end
-#             end
-
-#     elseif COMPILE_PLATFORM == :GPU
-
-#         return quote
-#                 i1New_ = CUDA.atomic_add!(CUDA.pointer($NNew,1),1)
-#                 idNew_ = CUDA.atomic_add!(CUDA.pointer($idMax,1),1)
-#                 if $NNew > $NCache
-#                     $NFlag = true
-#                 else
-#                     $id[i1New_] = idNew_
-#                     $code
-#                 end
-#             end
-
-#     end
-
-# end
-
-# macro removeAgentPoint(name::Symbol, iterator::Symbol, agentPos::Symbol)
-
-#     id = Symbol(name, "__id")
-
-#     return quote
-
-#         $id[$agentPos] = -1
-
-#     end
-
-# end
-
-# macro loopOverAgentPointNeighbors(name::Symbol, iterator::Symbol, code::Expr)
-
-#     N__ = Symbol(name, "__N")
-
-#     if COMPILE_PLATFORM == :CPU
-
-#         return quote
-#             Threads.@inloops @inbounds for $iterator in 1:$N__
-#                 for nbr in $neighbors[$iterator]
-#                     $(code)
-#                 end
-#             end
-#         end
-
-#     elseif COMPILE_PLATFORM == :GPU
-
-#         return quote
-#             @inbounds for $iterator in stride_:stride_:$N
-#                 for nbr in $neighbors[$iterator]
-#                     $(code)
-#                 end
-#             end
-#         end
-
-#     end
-
-# end
+    quote 
+        newPos = Threads.atomic_add!(community._meta._NNew, 1)
+        if newPos > community._meta._NCache[1]
+            community._meta._overflowFlag[1] = true
+            community._meta._NNew[1] = community._meta._NCache[1]
+            return
+        else
+            community._meta._id[newPos] = newId
+            $(cases...)
+            newId = Threads.atomic_add!(community._meta._idMax, 1)
+        end
+    end
+end

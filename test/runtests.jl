@@ -21,11 +21,14 @@ end
 
 if benchmark
 
+    # include("test.jl")
+
     N = 100000
     n = 10000
 
     # include("benchmarkCommunityIndices.jl")
     # include("benchmarkRecursiveCachedArrays.jl")
     # include("benchmarkCommunityPoint.jl")
+    # include("benchmarkPointGPUIterator.jl")
 
 end

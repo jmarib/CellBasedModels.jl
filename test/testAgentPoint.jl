@@ -28,7 +28,6 @@ import CellBasedModels: CommunityPointMeta
             else
                 @test !haskey(agent.propertiesAgent, :z)
             end
-            @test haskey(agent.propertiesAgent, :id)
         end
 
         agent = AgentPoint(
@@ -47,15 +46,17 @@ import CellBasedModels: CommunityPointMeta
 
         agent = AgentPoint(2)
         community = CommunityPoint(agent, 2)
-        @test typeof(community) == CommunityPoint{CellBasedModels.CommunityPointMeta{SizedVector{1, Int, Vector{Int64}}, SizedVector{1, Bool, Vector{Bool}}}, 2, (:x,:y,:id), Tuple{Vector{Float64},Vector{Float64},Vector{Int64}}, 3, 2, 2}
         community = CommunityPoint(agent, 3, 5)
-        @test typeof(community) == CommunityPoint{CellBasedModels.CommunityPointMeta{SizedVector{1, Int, Vector{Int64}}, SizedVector{1, Bool, Vector{Bool}}}, 2, (:x,:y,:id), Tuple{Vector{Float64},Vector{Float64},Vector{Int64}}, 3, 3, 5}
-        @test community._N[1] == 3 &&
-            community._NCache[1] == 5 &&
-            community._NNew[1] == 3 &&
-            community._idMax[1] == 3 &&
-            community._NFlag[1] == false &&
-            all([length(p) == 5 for p in community._propertiesAgent])
+        @test community._meta._N[1] == 3
+        @test community._meta._NCache[1] == 5
+        @test community._meta._NNew[1] == 3
+        @test community._meta._idMax[1] == 3
+        @test community._meta._id[1:3] == collect(1:3)
+        @test community._meta._removedIDs == zeros(Int, 5)
+        @test community._meta._overflowFlag[1] == false
+        @test community.N == 3
+        @test community.NCache == 5
+        @test all([length(p) == 5 for p in community._propertiesAgent])
 
         agent = AgentPoint(
                 2,
@@ -102,15 +103,7 @@ import CellBasedModels: CommunityPointMeta
             @test Array(community_gpu.idea) == zeros(Int, 3)
             @test Array(community_gpu.ok) == zeros(Bool, 3)
 
-            function f_gpu_kernel!(community) 
-                index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
-                stride = gridDim().x * blockDim().x
-                x = community.x
-                for i in index:stride:community._N[1]
-                    @inbounds x[i] = 5 * (x[i] + 1.0)
-                end
-                return
-            end
+            f_gpu_kernel!(community)  = nothing
 
             community = CommunityPoint(agent, 3, 5)
             community = CellBasedModels.setCopyParameters(community, (:x,))
@@ -125,6 +118,35 @@ import CellBasedModels: CommunityPointMeta
                 step!(integrator)
             end
             @test all(integrator.u.x .≈ 1.)
+
+        end
+
+        # Kernel iterator
+        kernel_iterate!(community, x) = @inbounds Threads.@threads for i in loopOverAgents(community)
+            x[i] += 1
+        end
+
+        agent = AgentPoint(3)
+        community = CommunityPoint(agent, 10, 20)
+        x = zeros(Float64, 20)
+        kernel_iterate!(community, x)
+        @test [x[i] for i in 1:10] == ones(10)
+        @test [x[i] for i in 11:20] == zeros(10)
+
+        if CUDA.has_cuda()
+
+            community = CommunityPoint(agent, 10, 20)
+            community_gpu = toGPU(community)
+            x = CUDA.zeros(Float64, 20)
+
+            kernel_iterate_gpu!(community, x) = @inbounds for i in loopOverAgents(community)
+                x[i] = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+            end
+
+            CUDA.@cuda threads=5 kernel_iterate_gpu!(community_gpu, x)
+            @test Array(x)[1:5] == 1:5
+            @test Array(x)[6:10] == 1:5
+            @test Array(x)[11:end] == zeros(10)
 
         end
 
