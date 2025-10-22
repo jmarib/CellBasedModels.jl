@@ -1,7 +1,6 @@
 ######################################################################################################
 # AGENT STRUCTURE
 ######################################################################################################
-
 struct AgentPoint{D, P, T} <: AbstractAgent where {D, P, T}
 
     propertiesAgent::NamedTuple{}    # Dictionary to hold agent properties
@@ -79,14 +78,13 @@ end
 ######################################################################################################
 # COMMUNITY AGENT POINT
 ######################################################################################################
-# struct CommunityPoint{B, D, P, T, NP, N, NC} <: AbstractCommunity{T, N}
 struct CommunityPointMeta{S, F, E, G}
     _N::S
     _NCache::S
     _NNew::S
     _idMax::S
     _id::F
-    _removedIDs::E
+    _removed::E
     _reorderedFlag::G
     _overflowFlag::G
 end
@@ -98,14 +96,14 @@ function CommunityPointMeta(
         _NNew,
         _idMax,
         _id,
-        _removedIDs,
+        _removed,
         _reorderedFlag,
         _overflowFlag,
     )
 
     S = typeof(_N)
     F = typeof(_id)
-    E = typeof(_removedIDs)
+    E = typeof(_removed)
     G = typeof(_overflowFlag)
 
     CommunityPointMeta{S, F, E, G}(
@@ -114,7 +112,7 @@ function CommunityPointMeta(
         _NNew,
         _idMax,
         _id,
-        _removedIDs,
+        _removed,
         _reorderedFlag,
         _overflowFlag,
     )
@@ -124,19 +122,19 @@ function CommunityPointMeta(
         N::Int,
         NCache::Int,
 )
-    _N = SizedVector{1, Int}([N])
-    _NCache = SizedVector{1, Int}([NCache])
-    _NNew = SizedVector{1, Int}([N])
-    _idMax = SizedVector{1, Int}([N])
+    _N = Threads.Atomic{Int}(N)
+    _NCache = Threads.Atomic{Int}(NCache)
+    _NNew = Threads.Atomic{Int}(N)
+    _idMax = Threads.Atomic{Int}(N)
     _id = SizedVector{NCache, Int}(zeros(Int, NCache))
     _id[1:N] = 1:N
-    _removedIDs = SizedVector{NCache, Int}(zeros(Int, NCache))
-    _reorderedFlag = SizedVector{1, Bool}([false])
-    _overflowFlag = SizedVector{1, Bool}([false])
+    _removed = SizedVector{NCache, Int}(zeros(Int, NCache))
+    _reorderedFlag = Threads.Atomic{Bool}(false)
+    _overflowFlag = Threads.Atomic{Bool}(false)
 
     S = typeof(_N)
     F = typeof(_id)
-    E = typeof(_removedIDs)
+    E = typeof(_removed)
     G = typeof(_overflowFlag)
 
     CommunityPointMeta{S, F, E, G}(
@@ -145,16 +143,16 @@ function CommunityPointMeta(
         _NNew,
         _idMax,
         _id,
-        _removedIDs,
+        _removed,
         _reorderedFlag,
         _overflowFlag,
     )
 end
 
 struct CommunityPoint{B, D, P, T, NP, N, NC} <: AbstractCommunity where {B, D, P, T, NP, N, NC}
-    _propertiesAgent::NamedTuple{P, T}
-    _meta::B
-    _propertiesCopy::SVector{NP, Bool}
+    _pa::NamedTuple{P, T}
+    _m::B
+    _paCopy::SVector{NP, Bool}
     N::Int
     NCache::Int
 end
@@ -179,44 +177,44 @@ function CommunityPoint(
 
     NP = length(P)
 
-    _meta = CommunityPointMeta(
+    _m = CommunityPointMeta(
         N,
         NCache,
     )
 
-    _propertiesCopy = SizedVector{NP, Bool}([false for _ in 1:NP])    # Dictionary to hold agent properties for copying
+    _paCopy = SizedVector{NP, Bool}([false for _ in 1:NP])    # Dictionary to hold agent properties for copying
 
-    return CommunityPoint{typeof(_meta), D, P, typeof(values(properties)), NP, N, NCache}(
+    return CommunityPoint{typeof(_m), D, P, typeof(values(properties)), NP, N, NCache}(
         properties,
-        _meta,
-        _propertiesCopy,
+        _m,
+        _paCopy,
         N,
         NCache,
     )
 end
 
 function CommunityPoint(
-        _propertiesAgent,
-        _meta,
-        _propertiesCopy,
+        _pa,
+        _m,
+        _paCopy,
         N,
         NCache,
     )
 
-    B = typeof(_meta)
-    D = length(filter(k -> k in (:x, :y, :z), keys(_propertiesAgent)))
-    P = keys(_propertiesAgent)
-    T = typeof(values(_propertiesAgent))
+    B = typeof(_m)
+    D = length(filter(k -> k in (:x, :y, :z), keys(_pa)))
+    P = keys(_pa)
+    T = typeof(values(_pa))
     NP = length(P)
 
     if NP != length(P)
-        error("Length of _propertiesAgent does not match NCache.")
+        error("Length of _pa does not match NCache.")
     end
 
     CommunityPoint{B, D, P, T, NP, N, NCache}(
-        _propertiesAgent,
-        _meta,
-        _propertiesCopy,
+        _pa,
+        _m,
+        _paCopy,
         N,
         NCache
     )
@@ -226,7 +224,7 @@ function Base.show(io::IO, x::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D
     println(io, "CommunityPoint $D D N=$N NCache=$NC: \n")
     println(io, @sprintf("\t%-15s %-15s", "Name", "DataType"))
     println(io, "\t" * repeat("-", 85))
-    for ((name, par), c) in zip(pairs(x._propertiesAgent), x._propertiesCopy)
+    for ((name, par), c) in zip(pairs(x._pa), x._paCopy)
         println(io, @sprintf("\t%-15s %-15s", 
             c ? string("*", name) : string(name),
             typeof(par)))
@@ -253,34 +251,34 @@ Base.IndexStyle(CommunityPoint::CommunityPoint) = Base.IndexStyle(typeof(Communi
 Base.IndexStyle(::Type{<:CommunityPoint}) = IndexCartesian()
 Base.CartesianIndices(community::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D, P, T, NP, N, NC} =
     CartesianIndices((NP, N))
-Base.getindex(cp::CommunityPoint, i::Symbol, j::Int) = cp._propertiesAgent[i][j]
-Base.getindex(cp::CommunityPoint, i::Int, j::Int) = cp._propertiesAgent[i][j]
-Base.getindex(cp::CommunityPoint, i::Symbol, :) = cp._propertiesAgent[i]
-Base.getindex(cp::CommunityPoint, i::Int, :) = cp._propertiesAgent[i]
+Base.getindex(cp::CommunityPoint, i::Symbol, j::Int) = cp._pa[i][j]
+Base.getindex(cp::CommunityPoint, i::Int, j::Int) = cp._pa[i][j]
+Base.getindex(cp::CommunityPoint, i::Symbol, :) = cp._pa[i]
+Base.getindex(cp::CommunityPoint, i::Int, :) = cp._pa[i]
 Base.getindex(cp::CommunityPoint{B, D, P, T, NP, N, NC}, :, j::Int) where {B, D, P, T, NP, N, NC} = NamedTuple{P}(
-    (cp._propertiesAgent[k][j] for k in keys(cp._propertiesAgent))
+    (cp._pa[k][j] for k in keys(cp._pa))
 )
-Base.setindex!(cp::CommunityPoint, value, i::Symbol, j::Int) = (cp._propertiesAgent[i][j] = value)
-Base.setindex!(cp::CommunityPoint, value, i::Int, j::Int) = (cp._propertiesAgent[i][j] = value)
-Base.setindex!(cp::CommunityPoint, value, index::CartesianIndex{2}) = (cp._propertiesAgent[index[1]][index[2]] = value)
-# Base.keys(cp::CommunityPoint) = keys(cp._propertiesAgent)
+Base.setindex!(cp::CommunityPoint, value, i::Symbol, j::Int) = (cp._pa[i][j] = value)
+Base.setindex!(cp::CommunityPoint, value, i::Int, j::Int) = (cp._pa[i][j] = value)
+Base.setindex!(cp::CommunityPoint, value, index::CartesianIndex{2}) = (cp._pa[index[1]][index[2]] = value)
+# Base.keys(cp::CommunityPoint) = keys(cp._pa)
 
 function Base.getindex(community::CommunityPoint, i::Integer)
-    community._propertiesAgent[i]
+    community._pa[i]
 end
 
 @generated function Base.getproperty(VA::CommunityPoint{B, D, P, T, NP, N, NC}, s::Symbol) where {B, D, P, T, NP, N, NC}
     names = P
     # build a clause for each fieldname in T
     cases = [
-        :(s === $(QuoteNode(name)) && return @views getfield(getfield(VA, :_propertiesAgent), $(QuoteNode(name)))[1:N])
+        :(s === $(QuoteNode(name)) && return @views getfield(getfield(VA, :_pa), $(QuoteNode(name)))[1:N])
         for name in names
     ]
 
     quote
-        if s === :_propertiesAgent; return getfield(VA, :_propertiesAgent); end
-        if s === :_meta; return getfield(VA, :_meta); end
-        if s === :_propertiesCopy; return getfield(VA, :_propertiesCopy); end
+        if s === :_pa; return getfield(VA, :_pa); end
+        if s === :_m; return getfield(VA, :_m); end
+        if s === :_paCopy; return getfield(VA, :_paCopy); end
         if s === :N; return getfield(VA, :N); end
         if s === :NCache; return getfield(VA, :NCache); end
         $(cases...)
@@ -330,9 +328,9 @@ end
 
     CommunityPoint{B, D, P, T, NP, N, NC}(
         NamedTuple{P}(
-            i in names(subset) ? copy(dest._propertiesAgent[i]) : dest._propertiesAgent[i] for i in P
+            i in names(subset) ? copy(dest._pa[i]) : dest._pa[i] for i in P
         ),
-        dest._meta,
+        dest._m,
         SizedVector{NP, Bool}([i in names(subset) ? true : false for i in P])    # Dictionary to hold agent properties for copying
     )
 
@@ -341,8 +339,8 @@ end
 @eval @inline function Base.copyto!(dest::CommunityPoint{B, D, P, T, NP, N, NC},
         bc::CommunityPoint{B, D, P, T, NP, N, NC2}) where {B, D, P, T, NP, N, NC, NC2}
     @inbounds for i in 1:NP
-        if bc._propertiesCopy[i]
-            @views dest._propertiesAgent[i][1:N] .= bc._propertiesAgent[i][1:N]
+        if bc._paCopy[i]
+            @views dest._pa[i][1:N] .= bc._pa[i][1:N]
         end
     end
     dest
@@ -357,8 +355,8 @@ for type in [
             bc::$type) where {B, D, P, T, NP, N, NC}
         bc = Broadcast.flatten(bc)
         @inbounds for i in 1:NP
-            if dest._propertiesCopy[i]
-                dest_ = @views dest._propertiesAgent[i][1:N]
+            if dest._paCopy[i]
+                dest_ = @views dest._pa[i][1:N]
                 copyto!(dest_, unpack_voa(bc, i))
             end
         end
@@ -372,7 +370,7 @@ end
 end
 
 function unpack_voa(x::CommunityPoint{B, D, P, T, NP, N, NC}, i) where {B, D, P, T, NP, N, NC}
-    @views x._propertiesAgent[i][1:N]
+    @views x._pa[i][1:N]
 end
 
 # Integrator
@@ -389,15 +387,15 @@ function Base.zero(community::CommunityPoint{B, D, P, T, NP, N, NC}) where {B, D
 
     communityZero = CommunityPoint{B, D, P, T, NP, N, NC}(
             NamedTuple{P, T}(
-                c ? similar(dt, eltype(dt)) : dt for (dt, c) in zip(values(community._propertiesAgent), community._propertiesCopy)               
+                c ? similar(dt, eltype(dt)) : dt for (dt, c) in zip(values(community._pa), community._paCopy)               
             ),
-            community._meta,
-            community._propertiesCopy,
+            community._m,
+            community._paCopy,
             N,
             NC
         )
 
-    for (dt, dtOld, c) in zip(values(communityZero._propertiesAgent), values(community._propertiesAgent), community._propertiesCopy)
+    for (dt, dtOld, c) in zip(values(communityZero._pa), values(community._pa), community._paCopy)
         if c
             @views dt[1:N] .= dtOld[1:N]
         end
@@ -414,12 +412,12 @@ function setCopyParameters(community::CommunityPoint{B, D, P, T, NP, N, NC}, par
         end
     end
 
-    _propertiesCopy = [i in params ? true : false for i in P]
+    _paCopy = [i in params ? true : false for i in P]
 
     CommunityPoint{B, D, P, T, NP, N, NC}(
-        community._propertiesAgent,
-        community._meta,
-        _propertiesCopy,
+        community._pa,
+        community._m,
+        _paCopy,
         N,
         NC,
     )
@@ -432,12 +430,12 @@ function addCopyParameter!(community::CommunityPoint{B, D, P, T, NP, N, NC}, par
     end
 
     idx = findfirst(==(param), P)
-    _propertiesCopy = [j || i == idx ? true : false for (i,j) in enumerate(P)]
+    _paCopy = [j || i == idx ? true : false for (i,j) in enumerate(P)]
 
     community = CommunityPoint{B, D, P, T, NP, N, NC}(
-        community._propertiesAgent,
-        community._meta,
-        _propertiesCopy,
+        community._pa,
+        community._m,
+        _paCopy,
         N,
         NC,
     )
@@ -461,9 +459,9 @@ function loopOverAgents(community::CommunityPoint{B, D, P, T, NP, N, NC}) where 
     CommunityPointIterator{B}(N)
 end
 
-function Base.iterate(iterator::CommunityPointIterator, state = 1)
-    state >= iterator.N + 1 ? nothing : (state, state + 1)
-end
+# function Base.iterate(iterator::CommunityPointIterator, state = 1)
+#     state >= iterator.N + 1 ? nothing : (state, state + 1)
+# end
 
 # Necessary for working with Threads
 Base.firstindex(iterator::CommunityPointIterator) = 1
@@ -475,28 +473,45 @@ Base.getindex(iterator::CommunityPointIterator, i::Int) = i
 ######################################################################################################
 # Kernel functions
 ######################################################################################################
-function removeAgent!(community::CommunityPoint, id::Int)
-    community._meta._reorderedFlag[1] = true
-    community._meta._removedIDs[id] = true
+function removeAgent!(community::CommunityPoint, pos::Int)
+    if pos < 1 || pos > community.N
+        @warn "Position $pos is out of bounds for CommunityPoint with N=$(community.N). No agent removed."
+    else
+        community._m._reorderedFlag[] = true
+        community._m._removed[pos] = true
+    end
+    return
 end
 
-@generated function addAgent!(community::CommunityPoint{B, D, P, T, NP, N, NC}, kwargs::NamedTuple{P, T2}) where {B, D, P, T, NP, N, NC, P2, T2}
+@generated function addAgent!(community::CommunityPoint{<:CommunityPointMeta{S}, D, P, T, NP, N, NC}, kwargs::NamedTuple{P2, T2}) where {S<:Threads.Atomic, D, P, T, NP, N, NC, P2, T2}
+
+    for i in P2
+        if !(i in P)
+            error("Property $i not found in CommunityPoint. Properties that have to be provided to addAgent! are: $(P).")
+        end
+    end
+
+    for i in P
+        if !(i in P2)
+            error("Property $i not provided in addAgent! arguments. You must provide all properties. Provided properties are: $(P2). Properties that have to be provided are: $(P).")
+        end
+    end
 
     cases = [
-        :(community.$name[newPos] = kwargs.$name)
+        :(community._pa.$name[newPos] = kwargs.$name)
         for name in P
     ]
 
     quote 
-        newPos = Threads.atomic_add!(community._meta._NNew, 1)
-        if newPos > community._meta._NCache[1]
-            community._meta._overflowFlag[1] = true
-            community._meta._NNew[1] = community._meta._NCache[1]
+        newPos = Threads.atomic_add!(community._m._NNew, 1) + 1
+        if newPos > community._m._NCache[]
+            community._m._overflowFlag[] = true
             return
         else
-            community._meta._id[newPos] = newId
+            newId = Threads.atomic_add!(community._m._idMax, 1) + 1
+            community._m._id[newPos] = newId
             $(cases...)
-            newId = Threads.atomic_add!(community._meta._idMax, 1)
         end
     end
+
 end

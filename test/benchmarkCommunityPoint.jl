@@ -16,7 +16,7 @@ f!(x) = x .= 5 .* x .+ 1
 
 # function to_gpu(cp::CommunityPoint{D, P, N, NC}) where {D, P, N, NC}
 #     CommunityPoint{D, P, N, NC}(
-#         Adapt.adapt(CuArray, cp._propertiesAgent),
+#         Adapt.adapt(CuArray, cp._pa),
 #         Adapt.adapt(CuArray, cp._N),
 #         Adapt.adapt(CuArray, cp._NCache),
 #         Adapt.adapt(CuArray, cp._NNew),

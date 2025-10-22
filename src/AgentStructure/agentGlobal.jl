@@ -73,8 +73,8 @@ end
 # COMMUNITY AGENT POINT
 ######################################################################################################
 struct CommunityGlobal{P} <: AbstractCommunity where {P}
-    _propertiesAgent::NamedTuple{P, T}
-    _propertiesCopy::SVector{length(NP), Bool}
+    _pa::NamedTuple{P, T}
+    _paCopy::SVector{length(NP), Bool}
 end
 Adapt.@adapt_structure CommunityGlobal
 
@@ -84,24 +84,24 @@ function CommunityGlobal(
 
     properties = NamedTuple{keys(agent.propertiesAgent)}(zeros(dtype(dt, isbits=true), NCache) for dt in values(agent.propertiesAgent))
 
-    _propertiesCopy = SizedVector{NP, Bool}([false for _ in 1:NP])    # Dictionary to hold agent properties for copying
+    _paCopy = SizedVector{NP, Bool}([false for _ in 1:NP])    # Dictionary to hold agent properties for copying
 
     return CommunityGlobal{P}(
         properties,
-        _propertiesCopy,
+        _paCopy,
     )
 end
 
 function CommunityGlobal(
-        _propertiesAgent,
-        _propertiesCopy,
+        _pa,
+        _paCopy,
     )
 
-    P = typeof(_propertiesAgent)
+    P = typeof(_pa)
 
     CommunityGlobal{P}(
-        _propertiesAgent,
-        _propertiesCopy,
+        _pa,
+        _paCopy,
     )
 end
 
@@ -115,31 +115,31 @@ Base.IndexStyle(CommunityGlobal::CommunityGlobal) = Base.IndexStyle(typeof(Commu
 Base.IndexStyle(::Type{<:CommunityGlobal}) = IndexLinear()
 Base.CartesianIndices(community::CommunityGlobal{P, NP}) where {P, NP} =
     CartesianIndices((NP, N))
-Base.getindex(cp::CommunityGlobal, i::Symbol) = cp._propertiesAgent[i]
-Base.getindex(cp::CommunityGlobal, i::Int) = cp._propertiesAgent[i]
-Base.setindex!(cp::CommunityGlobal, value, i::Symbol) = (cp._propertiesAgent[i] = value)
-Base.setindex!(cp::CommunityGlobal, value, i::Int) = (cp._propertiesAgent[i] = value)
-Base.setindex!(cp::CommunityGlobal, value, index::LinearIndexing) = (cp._propertiesAgent[index[1]] = value)
+Base.getindex(cp::CommunityGlobal, i::Symbol) = cp._pa[i]
+Base.getindex(cp::CommunityGlobal, i::Int) = cp._pa[i]
+Base.setindex!(cp::CommunityGlobal, value, i::Symbol) = (cp._pa[i] = value)
+Base.setindex!(cp::CommunityGlobal, value, i::Int) = (cp._pa[i] = value)
+Base.setindex!(cp::CommunityGlobal, value, index::LinearIndexing) = (cp._pa[index[1]] = value)
 
 function Base.getindex(community::CommunityGlobal, i::Integer)
-    community._propertiesAgent[i]
+    community._pa[i]
 end
 
 function Base.iterate(community::CommunityGlobal, state = 1)
-    state >= length(community._propertiesAgent) + 1 ? nothing : (community[state], state + 1)
+    state >= length(community._pa) + 1 ? nothing : (community[state], state + 1)
 end
 
 @generated function Base.getproperty(VA::CommunityGlobal{P}, s::Symbol) where {P}
     names = P
     # build a clause for each fieldname in T
     cases = [
-        :(s === $(QuoteNode(name)) && return @views getfield(getfield(VA, :_propertiesAgent), $(QuoteNode(name)))[1:N])
+        :(s === $(QuoteNode(name)) && return @views getfield(getfield(VA, :_pa), $(QuoteNode(name)))[1:N])
         for name in names
     ]
 
     quote
-        if s === :_propertiesAgent; return getfield(VA, :_propertiesAgent); end
-        if s === :_propertiesCopy; return getfield(VA, :_propertiesCopy); end
+        if s === :_pa; return getfield(VA, :_pa); end
+        if s === :_paCopy; return getfield(VA, :_paCopy); end
         $(cases...)
         error("Unknown property: $s for $VA")
     end
@@ -188,7 +188,7 @@ end
 
     CommunityGlobal{P}(
         NamedTuple{P}(
-            i in names(subset) ? copy(dest._propertiesAgent[i]) : dest._propertiesAgent[i] for i in P
+            i in names(subset) ? copy(dest._pa[i]) : dest._pa[i] for i in P
         ),
         SizedVector{length(P), Bool}([i in names(subset) ? true : false for i in P])    # Dictionary to hold agent properties for copying
     )
@@ -198,8 +198,8 @@ end
 @eval @inline function Base.copyto!(dest::CommunityGlobal{P, NP},
         bc::CommunityGlobal{P, NP2}) where {P, NP, NC2}
     @inbounds for i in 1:NP
-        if bc._propertiesCopy[i]
-            @views dest._propertiesAgent[i][1:N] .= bc._propertiesAgent[i][1:N]
+        if bc._paCopy[i]
+            @views dest._pa[i][1:N] .= bc._pa[i][1:N]
         end
     end
     dest
@@ -214,8 +214,8 @@ for type in [
             bc::$type) where {P, NP}
         bc = Broadcast.flatten(bc)
         @inbounds for i in 1:NP
-            if dest._propertiesCopy[i]
-                dest_ = @views dest._propertiesAgent[i][1:N]
+            if dest._paCopy[i]
+                dest_ = @views dest._pa[i][1:N]
                 copyto!(dest_, unpack_voa(bc, i))
             end
         end
@@ -229,7 +229,7 @@ end
 end
 
 function unpack_voa(x::CommunityGlobal{P, NP}, i) where {P, NP}
-    @views x._propertiesAgent[i][1:N]
+    @views x._pa[i][1:N]
 end
 
 # Integrator
@@ -246,15 +246,15 @@ function Base.zero(community::CommunityGlobal{P, NP}) where {P, NP}
 
     communityZero = CommunityGlobal{P, NP}(
             NamedTuple{P, T}(
-                c ? similar(dt, eltype(dt)) : dt for (dt, c) in zip(values(community._propertiesAgent), community._propertiesCopy)               
+                c ? similar(dt, eltype(dt)) : dt for (dt, c) in zip(values(community._pa), community._paCopy)               
             ),
-            community._meta,
-            community._propertiesCopy,
+            community._m,
+            community._paCopy,
             N,
             NC
         )
 
-    for (dt, dtOld, c) in zip(values(communityZero._propertiesAgent), values(community._propertiesAgent), community._propertiesCopy)
+    for (dt, dtOld, c) in zip(values(communityZero._pa), values(community._pa), community._paCopy)
         if c
             @views dt[1:N] .= dtOld[1:N]
         end
@@ -271,12 +271,12 @@ function setCopyParameters(community::CommunityGlobal{P, NP}, params::NTuple{P2,
         end
     end
 
-    _propertiesCopy = [i in params ? true : false for i in P]
+    _paCopy = [i in params ? true : false for i in P]
 
     CommunityGlobal{P, NP}(
-        community._propertiesAgent,
-        community._meta,
-        _propertiesCopy,
+        community._pa,
+        community._m,
+        _paCopy,
         N,
         NC,
     )
@@ -289,12 +289,12 @@ function addCopyParameter!(community::CommunityGlobal{P, NP}, param::Symbol) whe
     end
 
     idx = findfirst(==(param), P)
-    _propertiesCopy = [j || i == idx ? true : false for (i,j) in enumerate(P)]
+    _paCopy = [j || i == idx ? true : false for (i,j) in enumerate(P)]
 
     community = CommunityGlobal{P, NP}(
-        community._propertiesAgent,
-        community._meta,
-        _propertiesCopy,
+        community._pa,
+        community._m,
+        _paCopy,
         N,
         NC,
     )
