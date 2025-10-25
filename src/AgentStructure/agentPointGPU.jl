@@ -10,9 +10,7 @@ function toCPU(cp::CommunityPoint{CommunityPointMeta{<:Union{CUDA.CuArray, CUDA.
             CommunityPointMeta{Threads.Atomic{Int}, SizedVector{length(cp._m._id), Int}, SizedVector{length(cp._m._removed), Bool}, Threads.Atomic{1, Bool}},
             cp._m,
         ),
-        cp._paCopy,
-        cp.N,
-        cp.NCache,
+        cp._paCopy
     )
 end
 
@@ -29,11 +27,14 @@ function toGPU(cp::CommunityPoint{B}) where {B<:CommunityPointMeta{<:Threads.Ato
             CUDA.CuArray([cp._m._reorderedFlag[]]),
             CUDA.CuArray([cp._m._overflowFlag[]])
         ),
-        cp._paCopy,
-        cp.N,
-        cp.NCache,
+        cp._paCopy
     )
 end
+
+Base.length(community::CommunityPoint{<:CommunityPointMeta{S}, D, P, T, NP}) where {S<:CUDA.CuArray, D, P, T, NP} = CUDA.@allowscalar community._m._N[1]
+Base.length(community::CommunityPoint{<:CommunityPointMeta{S}, D, P, T, NP}) where {S<:CUDA.CuDeviceArray, D, P, T, NP} = community._m._N[1]
+lengthCache(community::CommunityPoint{<:CommunityPointMeta{S}, D, P, T, NP}) where {S<:CUDA.CuArray, D, P, T, NP} = CUDA.@allowscalar community._m._NCache[1]
+lengthCache(community::CommunityPoint{<:CommunityPointMeta{S}, D, P, T, NP}) where {S<:CUDA.CuDeviceArray, D, P, T, NP} = community._m._NCache[1]
 
 function Base.iterate(
         community::CommunityPoint{<:CommunityPointMeta{S}}, 
@@ -42,20 +43,20 @@ function Base.iterate(
                 (blockIdx().x - 1) * blockDim().x + threadIdx().x  #Index
             )
     ) where {S<:CUDA.CuDeviceArray}
-    state[2] >= community.N + 1 ? nothing : (state[2], (state[1], state[1] + state[2]))
+    state[2] >= community._m._N[1] + 1 ? nothing : (state[2], (state[1], state[1] + state[2]))
 end
 
 ######################################################################################################
 # Iterator
 ######################################################################################################
 function Base.iterate(
-        community::CommunityPointIterator{<:CommunityPointMeta{S}}, 
+        iterator::CommunityPointIterator{<:CommunityPointMeta{S}}, 
         state = (
                 gridDim().x * blockDim().x,                         #Stride
                 (blockIdx().x - 1) * blockDim().x + threadIdx().x  #Index
             )
     ) where {S<:CUDA.CuDeviceArray}
-    state[2] >= community.N + 1 ? nothing : (state[2], (state[1], state[1] + state[2]))
+    state[2] >= iterator.N + 1 ? nothing : (state[2], (state[1], state[1] + state[2]))
 end
 
 ######################################################################################################
@@ -67,8 +68,8 @@ function removeAgent!(community::CommunityPoint{<:CommunityPointMeta{S}}, pos::I
 end
 
 function removeAgent!(community::CommunityPoint{<:CommunityPointMeta{S}}, pos::Int) where {S<:CUDA.CuDeviceArray}
-    if pos < 1 || pos > community.N
-        CUDA.@cuprintln "Position $pos is out of bounds for CommunityPoint with N=$(community.N). No agent removed."
+    if pos < 1 || pos > length(community)
+        CUDA.@cuprintln "Position $pos is out of bounds for CommunityPoint with N=$(length(community)). No agent removed."
     else
         community._m._reorderedFlag[1] = true
         community._m._removed[pos] = true
@@ -81,7 +82,7 @@ function addAgent!(community::CommunityPoint{<:CommunityPointMeta{S}}, kwargs) w
     return
 end
 
-@generated function addAgent!(community::CommunityPoint{<:CommunityPointMeta{S}, D, P, T, NP, N, NC}, kwargs::NamedTuple{P2, T2}) where {S<:CUDA.CuDeviceArray, D, P, T, NP, N, NC, P2, T2}
+@generated function addAgent!(community::CommunityPoint{<:CommunityPointMeta{S}, D, P, T, NP}, kwargs::NamedTuple{P2, T2}) where {S<:CUDA.CuDeviceArray, D, P, T, NP, P2, T2}
 
     for i in P2
         if !(i in P)

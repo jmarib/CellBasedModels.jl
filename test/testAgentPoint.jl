@@ -55,8 +55,6 @@ import CellBasedModels: CommunityPointMeta
         @test community._m._removed == zeros(Int, 5)
         @test community._m._reorderedFlag[] == false
         @test community._m._overflowFlag[] == false
-        @test community.N == 3
-        @test community.NCache == 5
         @test all([length(p) == 5 for p in community._pa])
 
         agent = AgentPoint(
