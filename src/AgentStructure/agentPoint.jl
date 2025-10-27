@@ -18,12 +18,6 @@ function AgentPoint(
         x = dims >= 1 ? Parameter(AbstractFloat, description="Position in x (protected parameter)", dimensions=:L, _scope=:agent) : nothing,
         y = dims >= 2 ? Parameter(AbstractFloat, description="Position in y (protected parameter)", dimensions=:L, _scope=:agent) : nothing,
         z = dims >= 3 ? Parameter(AbstractFloat, description="Position in z (protected parameter)", dimensions=:L, _scope=:agent) : nothing,
-        # id = Parameter(Integer, description="Unique identifier (protected parameter)", _scope=:agent),
-        # _N = dims >= 0 ? Parameter(Int, description="Number of agents (protected parameter)") : nothing,
-        # _NCache = dims >= 0 ? Parameter(Int, description="Maximum number of preallocated agents (protected parameter)") : nothing,
-        # _NNew = dims >= 0 ? Parameter(Int, description="Number of new agents added in the current step (protected parameter)") : nothing,
-        # _idMax = dims >= 0 ? Parameter(Int, description="Maximum unique identifier assigned (protected parameter)") : nothing,
-        # _overflowFlag = dims >= 0 ? Parameter(Bool, description="Flag indicating if the number of agents exceeded the preallocated maximum (protected parameter)") : nothing,
     )
 
     # Remove keys with value `nothing`
@@ -78,77 +72,120 @@ end
 ######################################################################################################
 # COMMUNITY AGENT POINT
 ######################################################################################################
-struct CommunityPointMeta{S, F, E, G}
-    _N::S
-    _NCache::S
-    _NNew::S
-    _idMax::S
-    _id::F
-    _removed::E
-    _reorderedFlag::G
-    _overflowFlag::G
+struct CommunityPointMeta{TR, AI, AB, VI, VB, SI, VVNT}
+    _N::AI
+    _NCache::AI
+
+    _id::VI
+    _idMax::AI
+    
+    _flagsRemoved::VB
+    _NRemoved::AI
+    _NRemovedThread::SI
+    
+    _NAdded::AI
+    _NAddedThread::SI    
+    _addedAgents::VVNT
+
+    _flagOverflow::AB
 end
 Adapt.@adapt_structure CommunityPointMeta
 
 function CommunityPointMeta(
-        _N,
-        _NCache,
-        _NNew,
-        _idMax,
-        _id,
-        _removed,
-        _reorderedFlag,
-        _overflowFlag,
-    )
-
-    S = typeof(_N)
-    F = typeof(_id)
-    E = typeof(_removed)
-    G = typeof(_overflowFlag)
-
-    CommunityPointMeta{S, F, E, G}(
-        _N,
-        _NCache,
-        _NNew,
-        _idMax,
-        _id,
-        _removed,
-        _reorderedFlag,
-        _overflowFlag,
-    )
-end
-
-function CommunityPointMeta(
+        agent::AgentPoint,
         N::Int,
         NCache::Int,
 )
     _N = Threads.Atomic{Int}(N)
     _NCache = Threads.Atomic{Int}(NCache)
-    _NNew = Threads.Atomic{Int}(N)
-    _idMax = Threads.Atomic{Int}(N)
-    _id = SizedVector{NCache, Int}(zeros(Int, NCache))
+
+    _id = Vector{Int}(zeros(Int, NCache))
     _id[1:N] = 1:N
-    _removed = SizedVector{NCache, Int}(zeros(Int, NCache))
-    _reorderedFlag = Threads.Atomic{Bool}(false)
-    _overflowFlag = Threads.Atomic{Bool}(false)
+    _idMax = Threads.Atomic{Int}(N)
+    
+    _flagsRemoved = Vector{Int}(zeros(Int, NCache))
+    _NRemoved = Threads.Atomic{Int}(0)
+    _NRemovedThread = SizedVector{Threads.nthreads(), Int}(zeros(Int, Threads.nthreads()))
 
-    S = typeof(_N)
-    F = typeof(_id)
-    E = typeof(_removed)
-    G = typeof(_overflowFlag)
+    _NAdded = Threads.Atomic{Int}(0)
+    _NAddedThread = SizedVector{Threads.nthreads(), Int}(zeros(Int, Threads.nthreads()))
+    P = keys(agent.propertiesAgent)
+    T = Tuple{(dtype(i, isbits=true) for i in values(agent.propertiesAgent))...}
+    _addedAgents = [Vector{NamedTuple{P, T}}() for _ in 1:Threads.nthreads()]
 
-    CommunityPointMeta{S, F, E, G}(
+    _flagOverflow = Threads.Atomic{Bool}(false)
+
+    TR = Threads.nthreads() > 1 ? true : false
+    AI = typeof(_N)
+    AB = typeof(_flagOverflow)
+    VI = typeof(_id)
+    VB = typeof(_flagsRemoved)
+    SI = typeof(_NRemovedThread)
+    VVNT = typeof(_addedAgents)
+
+    CommunityPointMeta{TR, AI, AB, VI, VB, SI, VVNT}(
         _N,
         _NCache,
-        _NNew,
-        _idMax,
+
         _id,
-        _removed,
-        _reorderedFlag,
-        _overflowFlag,
+        _idMax,
+        
+        _flagsRemoved,
+        _NRemoved,
+        _NRemovedThread,
+
+        _NAdded,
+        _NAddedThread,
+        _addedAgents,
+
+        _flagOverflow,
     )
 end
 
+function CommunityPointMeta(
+        _N,
+        _NCache,
+
+        _id,
+        _idMax,
+        
+        _flagsRemoved,
+        _NRemoved,
+        _NRemovedThread,
+
+        _NAdded,
+        _NAddedThread,
+        _addedAgents,
+
+        _flagOverflow,
+    )
+
+    TR = Threads.nthreads() > 1 ? true : false
+    AI = typeof(_N)
+    AB = typeof(_flagOverflow)
+    VI = typeof(_id)
+    VB = typeof(_flagsRemoved)
+    SI = typeof(_NRemovedThread)
+    VVNT = typeof(_addedAgents)
+
+    CommunityPointMeta{TR, AI, AB, VI, VB, SI, VVNT}(
+        _N,
+        _NCache,
+
+        _id,
+        _idMax,
+        
+        _flagsRemoved,
+        _NRemoved,
+        _NRemovedThread,
+
+        _NAdded,
+        _NAddedThread,
+        _addedAgents,
+
+        _flagOverflow,
+    )
+end
 struct CommunityPoint{B, D, P, T, NP} <: AbstractCommunity where {B, D, P, T, NP}
     _pa::NamedTuple{P, T}
     _m::B
@@ -176,6 +213,7 @@ function CommunityPoint(
     NP = length(P)
 
     _m = CommunityPointMeta(
+        agent,
         N,
         NCache,
     )
@@ -462,13 +500,12 @@ function removeAgent!(community::CommunityPoint, pos::Int)
     if pos < 1 || pos > length(community)
         @warn "Position $pos is out of bounds for CommunityPoint with N=$(length(community)). No agent removed."
     else
-        community._m._reorderedFlag[] = true
-        community._m._removed[pos] = true
+        community._m._flagsRemoved[pos] = true
     end
     return
 end
 
-@generated function addAgent!(community::CommunityPoint{<:CommunityPointMeta{S}, D, P, T, NP}, kwargs::NamedTuple{P2, T2}) where {S<:Threads.Atomic, D, P, T, NP, P2, T2}
+@generated function addAgent!(community::CommunityPoint{<:CommunityPointMeta{TR, S}, D, P, T, NP}, kwargs::NamedTuple{P2, T2}) where {TR, S<:Threads.Atomic, D, P, T, NP, P2, T2}
 
     for i in P2
         if !(i in P)

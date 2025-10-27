@@ -12,11 +12,15 @@ benchmark = true #just for internal optimizations
     using CUDA
     # include("testIndexing.jl")
     # include("testParameter.jl")
+
+    include("testUnstructuredMesh.jl")
+
+
     # include("testRecursiveCachedArrays.jl")
     # include("testTypeIntegrators.jl")
     # include("testAgentGlobal.jl")
     # include("testABM.jl")
-    include("testAgentPoint.jl")
+    # include("testAgentPoint.jl")
 end
 
 if benchmark

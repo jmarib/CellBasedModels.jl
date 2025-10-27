@@ -6,6 +6,6 @@ module CellBasedModelsGPUExt
     import CUDA: CuArray
     import StaticArrays: SizedVector
 
-    include("../src/AgentStructure/agentPointGPU.jl")
+    # include("../src/AgentStructure/agentPointGPU.jl")
 
 end

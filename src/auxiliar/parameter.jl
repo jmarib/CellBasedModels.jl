@@ -139,7 +139,7 @@ function parameterConvert(parameters; scope::Union{Symbol, Nothing}=nothing)
         elseif parameters[i] isa DataType
             push!(l, Parameter(parameters[i], _scope=scope))
         else
-            error("Parameters must be of type Parameter or DataType. Given: $(typeof(parameters[i])) for parameter $i")
+            error("Parameters must be of type Parameter or DataType. Given: $(parameters[i]) for parameter $i")
         end
     end
     values_tuple = Tuple(l)

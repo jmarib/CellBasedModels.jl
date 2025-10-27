@@ -11,8 +11,8 @@ module CellBasedModels
     # include("./auxiliar/units.jl")ç
     export Parameter
     include("./auxiliar/parameter.jl")
-    include("./auxiliar/indexing.jl")
-    include("./auxiliar/meta.jl")
+    # include("./auxiliar/indexing.jl")
+    # include("./auxiliar/meta.jl")
     # include("./auxiliar/recursiveCachedArrays.jl")
 
     # include("./baseStructs.jl")
@@ -20,9 +20,9 @@ module CellBasedModels
 
     #Custom integrators
     # export CBMIntegrators
-    export Rule, ODE, DynamicalODE, SplitODE, SDE, RODE, ADIODE
-    include("./integrators/abstractTypes.jl")
-    include("./integrators/integratorsFunctionGeneration.jl")
+    # export Rule, ODE, DynamicalODE, SplitODE, SDE, RODE, ADIODE
+    # include("./integrators/abstractTypes.jl")
+    # include("./integrators/integratorsFunctionGeneration.jl")
 
     # #Random
     # export CBMDistributions
@@ -35,49 +35,51 @@ module CellBasedModels
     # using .CBMMetrics
 
     #Platforms
-    export CPU, GPU
-    include("./platforms.jl")
+    # export CPU, GPU
+    # include("./platforms.jl")
 
     #Abstraact types
-    include("./neighbors/abstractTypes.jl")
-    include("./AgentStructure/abstractTypes.jl")
-    include("./CommunityStructure/abstractTypes.jl")
+    # include("./neighbors/abstractTypes.jl")
+    # include("./AgentStructure/abstractTypes.jl")
+    # include("./CommunityStructure/abstractTypes.jl")
 
     #Auxiliar
     # export cellInMesh, new
     # include("./AgentStructure/auxiliar.jl")
 
     #Agent
-    export toCPU, toGPU, loopOverAgents, removeAgent!, addAgent!
+    # export toCPU, toGPU, loopOverAgents, removeAgent!, addAgent!
     include("./AgentStructure/auxiliar.jl")
+    export UnstructuredMeshProperties, UnstructuredMeshObjectMeta, UnstructuredMeshObject
+    include("./AgentStructure/unstructuredMesh.jl")
     # export AgentGlobal
     # include("./AgentStructure/agentGlobal.jl")
-    export AgentPoint, CommunityPoint
-    include("./AgentStructure/agentPoint.jl")
+    # export AgentPoint, CommunityPoint
+    # include("./AgentStructure/agentPoint.jl")
         #Structure
-    export ABM
-    include("./AgentStructure/abm.jl")
+    # export ABM
+    # include("./AgentStructure/abm.jl")
     #     #Rule
     # include("./AgentStructure/functionRule.jl")
     #     #DE
     # include("./AgentStructure/functionDE.jl")
 
     #Neighbors
-    NEIGHBORS_ALGS = (:NeighborsFull, :NeighborsCellLinked)
-    export NeighborsFull
-    include("./neighbors/neighborsFull.jl")
-    export NeighborsCellLinked
-    include("./neighbors/neighborsCellLinked.jl")
+    # NEIGHBORS_ALGS = (:NeighborsFull, :NeighborsCellLinked)
+    # export NeighborsFull
+    # include("./neighbors/neighborsFull.jl")
+    # export NeighborsCellLinked
+    # include("./neighbors/neighborsCellLinked.jl")
     # export CBMNeighbors, computeNeighbors!
     # include("./neighbors.jl")
     # using .CBMNeighbors
 
     #Community
-    export update!
+    # export update!
     # export CommunityGlobal
     # include("./CommunityStructure/communityGlobal.jl")
-    export CommunityABM
-    include("./CommunityStructure/communityABM.jl")
+    # export CommunityABM
+    # include("./CommunityStructure/communityABM.jl")
     # include("./CommunityStructure/communityStructure.jl")
     #     #IO
     # export saveJLD2, saveRAM!, loadJLD2
@@ -106,10 +108,10 @@ module CellBasedModels
     # export CBMPlots
     # include("./plotting/plotting.jl")
 
-    module CustomFunctions
+    # module CustomFunctions
 
-        using ..CellBasedModels
+    #     using ..CellBasedModels
         
-    end
+    # end
 
 end

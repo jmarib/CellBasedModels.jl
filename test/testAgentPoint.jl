@@ -49,12 +49,15 @@ import CellBasedModels: CommunityPointMeta
         community = CommunityPoint(agent, 3, 5)
         @test community._m._N[] == 3
         @test community._m._NCache[] == 5
-        @test community._m._NNew[] == 3
-        @test community._m._idMax[] == 3
         @test community._m._id[1:3] == collect(1:3)
-        @test community._m._removed == zeros(Int, 5)
-        @test community._m._reorderedFlag[] == false
-        @test community._m._overflowFlag[] == false
+        @test community._m._idMax[] == 3
+        @test community._m._flagsRemoved == zeros(Bool, 5)
+        @test community._m._NRemoved[] == 0
+        @test all(community._m._NRemovedThread .== zeros(Int,Threads.nthreads()))
+        @test community._m._NAdded[] == 0
+        @test all(community._m._NAddedThread .== zeros(Int,Threads.nthreads()))
+        @test community._m._addedAgents == [NamedTuple{(:x,:y),Tuple{Float64,Float64}}[] for i in 1:Threads.nthreads()]
+        @test community._m._flagOverflow[] == false
         @test all([length(p) == 5 for p in community._pa])
 
         agent = AgentPoint(
@@ -155,14 +158,12 @@ import CellBasedModels: CommunityPointMeta
 
         removeAgent!(community, 2)
 
-        @test community._m._reorderedFlag[] == true
-        @test community._m._removed == [false, true, false, false, false]
+        @test community._m._flagsRemoved == [false, true, false, false, false]
 
         community = CommunityPoint(agent, 3, 5)
         removeAgent!(community, 5)
 
-        @test community._m._reorderedFlag[] == false
-        @test community._m._removed == [false, false, false, false, false]
+        @test community._m._flagsRemoved == [false, false, false, false, false]
 
         if CUDA.has_cuda()
 
@@ -180,15 +181,13 @@ import CellBasedModels: CommunityPointMeta
 
             CUDA.@cuda removeAgent_kernel!(community_gpu, 2)
 
-            @test Array(community_gpu._m._reorderedFlag)[1] == true
-            @test Array(community_gpu._m._removed) == [false, true, false, false, false]
+            @test Array(community_gpu._m._flagsRemoved) == [false, true, false, false, false]
 
             community = CommunityPoint(agent, 3, 5)
             community_gpu = toGPU(community)
             CUDA.@cuda removeAgent_kernel!(community_gpu, 5)
 
-            @test community._m._reorderedFlag[] == false
-            @test community._m._removed == [false, false, false, false, false]
+            @test community._m._flagsRemoved == [false, false, false, false, false]
 
         end
 
