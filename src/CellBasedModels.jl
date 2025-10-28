@@ -50,7 +50,7 @@ module CellBasedModels
     #Agent
     # export toCPU, toGPU, loopOverAgents, removeAgent!, addAgent!
     include("./AgentStructure/auxiliar.jl")
-    export UnstructuredMeshProperties, UnstructuredMeshObjectMeta, UnstructuredMeshObject
+    export UnstructuredMesh, UnstructuredMeshObjectField, UnstructuredMeshObject
     include("./AgentStructure/unstructuredMesh.jl")
     # export AgentGlobal
     # include("./AgentStructure/agentGlobal.jl")

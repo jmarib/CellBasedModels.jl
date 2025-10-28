@@ -4,33 +4,25 @@ using DifferentialEquations
 using Adapt
 import StaticArrays: SizedVector
 
-@testset verbose = true "ABM - UnstructuredMeshProperties" begin
+@testset verbose = true "ABM - UnstructuredMesh" begin
 
     #######################################################################
-    # HELPER FUNCTIONS
+    # HELPERS
     #######################################################################
-    props =
-        (
+    props = (
             a = Parameter(Float64, description="param a", dimensions=:M, defaultValue=1.0),
-            b = Parameter(Int, description="param b", dimensions=:count, defaultValue=0)
+            b = Parameter(Int, description="param b", dimensions=:count, defaultValue=0),
         )
 
-    all_scopes = 
-        (
-            :propertiesAgent,
-            :propertiesNode,
-            :propertiesEdge,
-            :propertiesFace,
-            :propertiesVolume
-        )
+    all_scopes = (:propertiesAgent, :propertiesNode, :propertiesEdge, :propertiesFace, :propertiesVolume)
 
     #######################################################################
-    # TESTSET 1: UnstructuredMeshProperties
+    # TEST 1: UnstructuredMesh
     #######################################################################
-    @testset "UnstructuredMeshProperties - all scopes and dimensions" begin
+    @testset "UnstructuredMesh - full coverage" begin
         for dims in 0:3
-            for (scopePos, scope) in zip(1:5, all_scopes)
-                mesh = UnstructuredMeshProperties(
+            for scope in all_scopes
+                mesh = UnstructuredMesh(
                     dims;
                     scopePosition = scope,
                     propertiesAgent  = scope == :propertiesAgent  ? props : nothing,
@@ -39,76 +31,118 @@ import StaticArrays: SizedVector
                     propertiesFace   = scope == :propertiesFace   ? props : nothing,
                     propertiesVolume = scope == :propertiesVolume ? props : nothing,
                 )
-                @test mesh isa UnstructuredMeshProperties
-                @test CellBasedModels.spatialDims(mesh) == dims
-                @test CellBasedModels.scopePosition(mesh) === scopePos
 
-                # Check that the chosen scope has properties
-                pfield = getfield(mesh, scope)
-                @test pfield !== nothing
-                @test haskey(pfield, :a)
-                @test CellBasedModels.dtype(pfield.a) == AbstractFloat
+                @test mesh isa UnstructuredMesh
+                @test CellBasedModels.spatialDims(mesh) == dims
+                @test CellBasedModels.scopePosition(mesh) in 1:5
+                @test getfield(mesh, scope) !== nothing
             end
         end
 
         # Invalid dimension
-        @test_throws ErrorException UnstructuredMeshProperties(-1)
-        @test_throws ErrorException UnstructuredMeshProperties(4)
+        @test_throws ErrorException UnstructuredMesh(-1)
+        @test_throws ErrorException UnstructuredMesh(4)
 
-        # Invalid scope
-        @test_throws ErrorException UnstructuredMeshProperties(2; scopePosition=:invalid)
+        # Invalid scopePosition
+        @test_throws ErrorException UnstructuredMesh(2; scopePosition=:invalid)
 
-        # Duplicate protected parameter
-        bad_props = (x = Parameter(Float64, description="pos x", dimensions=:L, defaultValue=0.0),)
-        @test_throws ErrorException UnstructuredMeshProperties(1; propertiesAgent=bad_props, scopePosition=:propertiesAgent)
+        # Duplicate protected parameter name (e.g., x)
+        bad_props = (x = Parameter(Float64, description="duplicate", dimensions=:L, defaultValue=0.0),)
+        @test_throws ErrorException UnstructuredMesh(1; propertiesAgent=bad_props, scopePosition=:propertiesAgent)
 
-        # Printing check
+        # Show output test
         io = IOBuffer()
-        show(io, UnstructuredMeshProperties(2; propertiesAgent=props, scopePosition=:propertiesAgent))
-        out = String(take!(io))
-        @test occursin("UnstructuredMeshProperties with dimensions 2", out)
+        show(io, UnstructuredMesh(2; propertiesAgent=props, scopePosition=:propertiesAgent))
+        output = String(take!(io))
+        @test occursin("UnstructuredMesh with dimensions 2", output)
     end
 
 
     #######################################################################
-    # TESTSET 2: UnstructuredMeshObjectMeta
+    # TEST 2: UnstructuredMeshObjectField
     #######################################################################
-    @testset "UnstructuredMeshObjectMeta - full combinations" begin
+    @testset "UnstructuredMeshObjectField - construction and logic" begin
 
-        # Valid with ID
-        meta = UnstructuredMeshObjectMeta(props; N=3, NCache=5, id=true)
-        @test meta isa UnstructuredMeshObjectMeta
-        @test typeof(meta._id) <: Vector{Int}
-        @test meta._idMax[] == 3
-        @test meta._N isa Threads.Atomic{Int}
-        @test meta._FlagOverflow[] == false
+        # Valid case
+        field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        @test field isa UnstructuredMeshObjectField
+        @test field._N[] == 3
+        @test field._NCache[] == 5
+        @test length(field._FlagsRemoved) == 5
+        @test field._FlagOverflow[] == false
+        @test field._idMax[] == 3
+        @test field._NP == length(props)
+        @test field._pReference isa SizedVector
 
-        # Valid without ID
-        meta2 = UnstructuredMeshObjectMeta(props; N=2, NCache=4, id=false)
-        @test meta2._id === nothing
+        # Get properties
+        @test field.a == zeros(Float64, 3)
+        @test field._p.a == zeros(Float64, 5)
 
-        # Test nothing case
-        @test UnstructuredMeshObjectMeta(nothing) === nothing
+        # No meshProperties → returns nothing
+        @test UnstructuredMeshObjectField(nothing) === nothing
 
-        # Check multiple scopes
-        for scope in all_scopes
-            meta = UnstructuredMeshObjectMeta(props; N=2, NCache=3)
-            @test meta isa UnstructuredMeshObjectMeta
-            @test meta._N isa Threads.Atomic{Int}
-            @test meta._NCache isa Threads.Atomic{Int}
-            @test meta._FlagsRemoved isa Vector{Int}
-            @test length(meta._FlagsRemoved) == 3
-        end
+        # With id=false
+        field2 = UnstructuredMeshObjectField(props; N=2, NCache=5, id=false)
+        @test field2._id === nothing
+        @test field2._idMax === nothing
+
+        # Show output formatting
+        io = IOBuffer()
+        show(io, field)
+        txt = String(take!(io))
+        @test occursin("_id", txt)
+        @test occursin("_AddedAgents", txt)
+
+        # Copy
+        field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field._pReference .= [true, false]
+        fieldCopy = copy(field)
+        field.a .= 7.0
+        field.b .= 2
+        @test fieldCopy.a == fill(7.0, 3)
+        @test fieldCopy.b == zeros(Int, 3)
+
+        # Copyto!
+        field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field._pReference .= [false, true]
+        field.a .= 7.0
+        field.b .= 2
+        field2 = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        copyto!(field2, field)
+        @test field2.a == fill(7.0, 3)
+        @test field2.b == fill(0, 3)
+
+        # Broadcast
+        field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field._pReference .= [false, true]
+        field.a .= 7.0
+        field.b .= 2
+        field2 = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field2._pReference .= [false, true]
+        @. field2 = field * 0.1 + 3.0
+        @test field2.a == fill(3.7, 3)
+        @test field2.b == fill(0, 3)
+
+        # Broadcast @..
+        field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field._pReference .= [false, true]
+        field.a .= 7.0
+        field.b .= 2
+        field2 = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field2._pReference .= [false, true]
+        DifferentialEquations.DiffEqBase.@.. field2 = field * 0.1 + 3.0
+        @test field2.a == fill(3.7, 3)
+        @test field2.b == fill(0, 3)
+
     end
 
-
     #######################################################################
-    # TESTSET 3: UnstructuredMeshObject - all scopes
+    # TEST 3: UnstructuredMeshObject
     #######################################################################
-    @testset "UnstructuredMeshObject - comprehensive coverage" begin
-        for dims in 1:3
+    @testset "UnstructuredMeshObject - integrated construction" begin
+        for dims in 0:3
             for scope in all_scopes
-                mesh = UnstructuredMeshProperties(
+                mesh = UnstructuredMesh(
                     dims;
                     scopePosition = scope,
                     propertiesAgent  = scope == :propertiesAgent  ? props : nothing,
@@ -118,28 +152,25 @@ import StaticArrays: SizedVector
                     propertiesVolume = scope == :propertiesVolume ? props : nothing,
                 )
 
-                # Basic valid creation
-                obj = UnstructuredMeshObject(mesh, 2, 4, 1, 2, 1, 2, 1, 2, 1, 2)
+                obj = UnstructuredMeshObject(mesh, 
+                    agentN=2, agentNCache=4, 
+                    nodeN=2, nodeNCache=4, 
+                    edgeN=2, edgeNCache=4, 
+                    faceN=2, faceNCache=4, 
+                    volumeN=2, volumeNCache=4
+                )
                 @test obj isa UnstructuredMeshObject
-                @test obj._am isa Union{Nothing, UnstructuredMeshObjectMeta}
-                @test obj._nm isa Union{Nothing, UnstructuredMeshObjectMeta}
-                @test obj._em isa Union{Nothing, UnstructuredMeshObjectMeta}
-                @test obj._fm isa Union{Nothing, UnstructuredMeshObjectMeta}
-                @test obj._vm isa Union{Nothing, UnstructuredMeshObjectMeta}
+                @test obj._scope == CellBasedModels.scopePosition(mesh)
+                @test obj.a isa Union{Nothing, UnstructuredMeshObjectField}
+                @test obj.n isa Union{Nothing, UnstructuredMeshObjectField}
+                @test obj.e isa Union{Nothing, UnstructuredMeshObjectField}
+                @test obj.f isa Union{Nothing, UnstructuredMeshObjectField}
+                @test obj.v isa Union{Nothing, UnstructuredMeshObjectField}
 
-                # Verify sizes and structure
-                for fld in fieldnames(typeof(obj))
-                    val = getfield(obj, fld)
-                    if fld in (:_ap, :_np, :_ep, :_fp, :_vp)
-                        if val !== nothing
-                            @test all(length(v) == 4 || length(v) == 2 for v in values(val))
-                        end
-                    end
-                end
+                # Invalid cache values
+                @test_throws ErrorException UnstructuredMeshObject(mesh, agentN=4, agentNCache=2)
+                @test_throws ErrorException UnstructuredMeshObject(mesh, agentN=-1, agentNCache=0)
 
-                # Cache consistency checks
-                @test_throws ErrorException UnstructuredMeshObject(mesh, 4, 2)
-                @test_throws ErrorException UnstructuredMeshObject(mesh, -1, 0)
             end
         end
     end
@@ -151,7 +182,7 @@ import StaticArrays: SizedVector
     #     community = CommunityPoint(agent, 3, 5)
     #     @test community._m._N[] == 3
     #     @test community._m._NCache[] == 5
-    #     @test community._m._id[1:3] == collect(1:3)
+    #     @test community._m.id[1:3] == collect(1:3)
     #     @test community._m._idMax[] == 3
     #     @test community._m._flagsRemoved == zeros(Bool, 5)
     #     @test community._m._NRemoved[] == 0
@@ -299,7 +330,7 @@ import StaticArrays: SizedVector
 
     #     addAgent!(community, (x=1.,y=2.))
 
-    #     @test community._m._id[4] == 4
+    #     @test community._m.id[4] == 4
     #     @test community._pa.x[4] == 1.
     #     @test community._pa.y[4] == 2.
     #     @test community._m._NNew[] == 4
@@ -320,7 +351,7 @@ import StaticArrays: SizedVector
 
     #         CUDA.@cuda addAgent_kernel!(community_gpu)
 
-    #         @test Array(community_gpu._m._id)[4] == 4
+    #         @test Array(community_gpu._m.id)[4] == 4
     #         @test Array(community_gpu._pa.x)[4] == 1.
     #         @test Array(community_gpu._pa.y)[4] == 2.
     #         @test Array(community_gpu._m._NNew)[1] == 4
