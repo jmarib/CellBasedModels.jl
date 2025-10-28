@@ -4,8 +4,9 @@ module CellBasedModelsGPUExt
     using CUDA
     using Adapt
     import CUDA: CuArray
-    import StaticArrays: SizedVector
+    import StaticArrays: SizedVector, SizedArray
+    import CellBasedModels: toCPU, toGPU
 
-    # include("../src/AgentStructure/agentPointGPU.jl")
+    include("../src/AgentStructure/unstructuredMeshGPU.jl")
 
 end

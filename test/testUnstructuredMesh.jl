@@ -102,6 +102,34 @@ import StaticArrays: SizedVector
         @test fieldCopy.a == fill(7.0, 3)
         @test fieldCopy.b == zeros(Int, 3)
 
+        # zero
+        field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field._pReference .= [true, false]
+        field.a .= 7.0
+        field.b .= 2        
+        fieldZero = zero(field)
+        @test fieldZero.a == fill(7.0, 3)
+        @test fieldZero.b == zeros(Int, 3)
+
+        # toGPU/toCPU
+        if CUDA.has_cuda()
+            field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+            field._pReference .= [true, false]
+            field.a .= 7.0
+            field.b .= 2
+
+            field_gpu = toGPU(field)
+
+            @test typeof(field_gpu._id) <: CUDA.CuArray
+            @test typeof(field_gpu.a) <: CUDA.CuArray
+
+            field_cpu = toCPU(field_gpu)
+
+            for i in fieldnames(UnstructuredMeshObjectField)
+                @test typeof(getfield(field_cpu, i)) <: Threads.Atomic ? getfield(field_cpu, i)[] == getfield(field, i)[] : getfield(field_cpu, i) == getfield(field, i)
+            end
+        end
+
         # Copyto!
         field = UnstructuredMeshObjectField(props; N=3, NCache=5)
         field._pReference .= [false, true]
@@ -111,6 +139,13 @@ import StaticArrays: SizedVector
         copyto!(field2, field)
         @test field2.a == fill(7.0, 3)
         @test field2.b == fill(0, 3)
+        if CUDA.has_cuda()
+            field_gpu = toGPU(field)
+            field2_gpu = toGPU(field2)
+            copyto!(field2_gpu, field_gpu)
+            @test Array(field2_gpu.a) == fill(7.0, 3)
+            @test Array(field2_gpu.b) == fill(0, 3)
+        end
 
         # Broadcast
         field = UnstructuredMeshObjectField(props; N=3, NCache=5)
@@ -122,6 +157,13 @@ import StaticArrays: SizedVector
         @. field2 = field * 0.1 + 3.0
         @test field2.a == fill(3.7, 3)
         @test field2.b == fill(0, 3)
+        if CUDA.has_cuda()
+            field_gpu = toGPU(field)
+            field2_gpu = toGPU(field2)
+            @. field2_gpu = field_gpu * 0.1 + 3.0
+            @test Array(field2_gpu.a) == fill(3.7, 3)
+            @test Array(field2_gpu.b) == fill(0, 3)
+        end
 
         # Broadcast @..
         field = UnstructuredMeshObjectField(props; N=3, NCache=5)
@@ -133,6 +175,13 @@ import StaticArrays: SizedVector
         DifferentialEquations.DiffEqBase.@.. field2 = field * 0.1 + 3.0
         @test field2.a == fill(3.7, 3)
         @test field2.b == fill(0, 3)
+        if CUDA.has_cuda()
+            field_gpu = toGPU(field)
+            field2_gpu = toGPU(field2)
+            DifferentialEquations.DiffEqBase.@.. field2_gpu = field_gpu * 0.1 + 3.0
+            @test Array(field2_gpu.a) == fill(3.7, 3)
+            @test Array(field2_gpu.b) == fill(0, 3)
+        end
 
     end
 

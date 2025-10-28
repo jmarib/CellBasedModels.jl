@@ -366,8 +366,8 @@ end
     end
 end
 
-Base.length(field::UnstructuredMeshObjectField) = field._N[]
-Base.size(field::UnstructuredMeshObjectField) = (field._NP, field._N[])
+Base.length(field::UnstructuredMeshObjectField{TR, IDVI, IDAI, AI}) where {TR, IDVI, IDAI, AI<:Threads.Atomic} = field._N[]
+Base.size(field::UnstructuredMeshObjectField) = (field._NP, length(field))
 
 struct UnstructuredMeshObjectFieldStyle{N} <: Broadcast.AbstractArrayStyle{N} end
 
@@ -390,7 +390,7 @@ Base.Broadcast.result_style(::Base.Broadcast.AbstractArrayStyle{M}, ::Unstructur
 
 Broadcast.broadcastable(x::UnstructuredMeshObjectField) = x
 
-## Copyto
+## Copy
 function Base.copy(field::UnstructuredMeshObjectField)
 
     return UnstructuredMeshObjectField(
@@ -416,6 +416,40 @@ function Base.copy(field::UnstructuredMeshObjectField)
 
 end
 
+## Zeros
+function Base.zero(field::UnstructuredMeshObjectField{
+            TR, IDVI, IDAI,
+            AI, VB, SI, VVNT, AB,
+            PR, PRN, PRC
+        }) where {
+            TR, IDVI, IDAI,
+            AI, VB, SI, VVNT, AB,
+            PR, PRN, PRC
+        } 
+
+    UnstructuredMeshObjectField(
+        field._id,
+        field._idMax,
+
+        field._N,
+        field._NCache,
+        field._FlagsRemoved,
+        field._NRemoved,
+        field._NRemovedThread,
+        field._NAdded,
+        field._NAddedThread,
+        field._AddedAgents,
+        field._FlagOverflow,
+
+        NamedTuple{keys(field._p)}(
+            r ? p : zero(p) for (p, r) in zip(values(field._p), field._pReference)
+        ),
+        field._NP,
+        field._pReference,
+    )
+end
+
+## Copyto!
 @eval @inline function Base.copyto!(
     dest::UnstructuredMeshObjectField{TR, IDVI, IDAI, AI, VB, SI, VVNT, AB, PR, PRN, PRC},
     bc::UnstructuredMeshObjectField{TR, IDVI, IDAI, AI, VB, SI, VVNT, AB, PR, PRN, PRC}) where {TR, IDVI, IDAI, AI, VB, SI, VVNT, AB, PR, PRN, PRC}

@@ -1,5 +1,5 @@
-function toCPU(x); x; end   # fallback definitions
-function toGPU(x); x; end
+function toCPU(x); @warn "No GPU found or no conversion for type $(typeof(x)). Fallback to CPU."; x end   # fallback definitions
+function toGPU(x); @warn "No GPU found or no conversion for type $(typeof(x)). Fallback to CPU."; x end
 
 # Generic unpackig for broadcasting
 

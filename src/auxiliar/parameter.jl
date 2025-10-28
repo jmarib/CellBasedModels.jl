@@ -147,3 +147,22 @@ function parameterConvert(parameters; scope::Union{Symbol, Nothing}=nothing)
 end
 
 dtype(parameter::Parameter{D}; isbits=false) where {D} = D in keys(DATATYPE) && isbits ? DATATYPE[D] : D
+function abstractDataType(D::DataType)
+    for i in keys(DATATYPE)
+        if D <: i
+            return i
+        end
+    end
+    return D
+end
+function concreteDataType(D::DataType)
+    for i in keys(DATATYPE)
+        if D <: i
+            return DATATYPE[i]
+        end
+    end
+    return D
+end
+function standardDataType(D::DataType)
+    concreteDataType(abstractDataType(D))
+end
