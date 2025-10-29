@@ -3,21 +3,23 @@ using CUDA
 using DifferentialEquations
 using Adapt
 import StaticArrays: SizedVector
-import CellBasedModels
 
-    props = (
-            a = Parameter(Float64, description="param a", dimensions=:M, defaultValue=1.0),
-            b = Parameter(Int, description="param b", dimensions=:count, defaultValue=0),
-        )
+props = (a=Float64, b=Float64)
+mesh = UnstructuredMesh(0; propertiesAgent=props, scopePosition=:propertiesAgent)
 
-    all_scopes = (:propertiesAgent, :propertiesNode, :propertiesEdge, :propertiesFace, :propertiesVolume)
-
-    mesh = UnstructuredMesh(
-        3,
-        propertiesAgent=props,
-    )
-    field = UnstructuredMeshObject(mesh; agentN=3, agentNCache=5)
-
-    println(field.a._pReference)
-    field.a._pReference .= [true, true, true, true, false]
-    fieldCopy = copy(field.a)
+function fODE!(du, u, p, t)
+    @. du.a.a = 0.1
+    return
+end
+obj = UnstructuredMeshObject(mesh, 
+    agentN=2, agentNCache=4, 
+    nodeN=2, nodeNCache=4, 
+    edgeN=2, edgeNCache=4, 
+    faceN=2, faceNCache=4, 
+    volumeN=2, volumeNCache=4
+)
+prob = ODEProblem(fODE!, obj, (0.0, 1.0))
+integrator = init(prob, Euler(), dt=0.1, save_everystep=false)
+for i in 1:10
+    step!(integrator)
+end

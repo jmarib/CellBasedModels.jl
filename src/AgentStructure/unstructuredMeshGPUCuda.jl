@@ -1,10 +1,14 @@
-import CellBasedModels: UnstructuredMeshObjectField
+import CellBasedModels: UnstructuredMeshObjectField, UnstructuredMeshObject
+import CellBasedModels: toCPU, toGPU, CPU, CPUSinglethread, CPUMultithreading
 
-CellBasedModels.toCPU(field::UnstructuredMeshObjectField{TR, IDVI, IDAI, AI}) where {TR, IDVI, IDAI, AI<:Threads.Atomic} = field
-CellBasedModels.toGPU(field::UnstructuredMeshObjectField{TR, IDVI, IDAI, AI}) where {TR, IDVI, IDAI, AI<:CUDA.CuArray} = field
+CellBasedModels.toCPU(field::UnstructuredMeshObjectField{P}) where {P<:CPU} = field
+CellBasedModels.toGPU(field::UnstructuredMeshObjectField{P}) where {P<:GPU} = field
 
-function toCPU(field::UnstructuredMeshObjectField{TR, IDVI, IDAI, AI}) where {TR, IDVI, IDAI, AI<:CUDA.CuArray}
+function toCPU(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda}
     UnstructuredMeshObjectField(
+        field._p              === nothing ? nothing : Adapt.adapt(Array, field._p),
+        field._NP             === nothing ? nothing : field._NP,
+        field._pReference     === nothing ? nothing : SizedVector{field._NP, Bool}([field._pReference...]),
         field._id             === nothing ? nothing : Vector{Int}(field._id),
         field._idMax          === nothing ? nothing : Threads.Atomic{Int}(Array(field._idMax)[1]),
         field._N              === nothing ? nothing : Threads.Atomic{Int}(Array(field._N)[1]),
@@ -16,14 +20,14 @@ function toCPU(field::UnstructuredMeshObjectField{TR, IDVI, IDAI, AI}) where {TR
         field._NAddedThread   === nothing ? nothing : SizedVector{Threads.nthreads(), Int}(zeros(Int, Threads.nthreads())),
         field._AddedAgents    === nothing ? nothing : [Vector{NamedTuple{keys(field._p), Tuple{[CellBasedModels.standardDataType(eltype(i)) for i in values(field._p)]...}}}() for _ in 1:Threads.nthreads()],
         field._FlagOverflow   === nothing ? nothing : Threads.Atomic{Bool}(false),
-        field._p              === nothing ? nothing : Adapt.adapt(Array, field._p),
-        field._NP             === nothing ? nothing : field._NP,
-        field._pReference     === nothing ? nothing : SizedVector{field._NP, Bool}([field._pReference...])
     )
 end
 
-function toGPU(field::UnstructuredMeshObjectField{TR, IDVI, IDAI, AI}) where {TR, IDVI, IDAI, AI<:Threads.Atomic}
+function toGPU(field::UnstructuredMeshObjectField{P}) where {P<:CPU}
     UnstructuredMeshObjectField(
+        field._p              === nothing ? nothing : Adapt.adapt(CUDA.CuArray, field._p),
+        field._NP             === nothing ? nothing : field._NP,
+        field._pReference     === nothing ? nothing : tuple(field._pReference...),
         field._id             === nothing ? nothing : CUDA.CuArray(field._id),
         field._idMax          === nothing ? nothing : CUDA.CuArray([field._idMax[]]),
         field._N              === nothing ? nothing : CUDA.CuArray([field._N[]]),
@@ -35,16 +39,38 @@ function toGPU(field::UnstructuredMeshObjectField{TR, IDVI, IDAI, AI}) where {TR
         field._NAddedThread   === nothing ? nothing : CUDA.zeros(0),
         field._AddedAgents    === nothing ? nothing : CUDA.zeros(0),
         field._FlagOverflow   === nothing ? nothing : CUDA.CuArray([false]),
-        field._p              === nothing ? nothing : Adapt.adapt(CUDA.CuArray, field._p),
-        field._NP             === nothing ? nothing : field._NP,
-        field._pReference     === nothing ? nothing : tuple(field._pReference...),
     )
 end
 
-Base.length(field::UnstructuredMeshObjectField{TR, IDVI, IDAI, AI}) where {TR, IDVI, IDAI, AI<:CUDA.CuArray} = CUDA.@allowscalar field._N[1]
-Base.length(field::UnstructuredMeshObjectField{TR, IDVI, IDAI, AI}) where {TR, IDVI, IDAI, AI<:CUDA.CuDeviceArray} = field._N[1]
-lengthCache(field::UnstructuredMeshObjectField{TR, IDVI, IDAI, AI}) where {TR, IDVI, IDAI, AI<:CUDA.CuArray} = CUDA.@allowscalar field._NCache[1]
-lengthCache(field::UnstructuredMeshObjectField{TR, IDVI, IDAI, AI}) where {TR, IDVI, IDAI, AI<:CUDA.CuDeviceArray} = field._NCache[1]
+Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._N[1]
+Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._N[1]
+lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._NCache[1]
+lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._NCache[1]
+
+CellBasedModels.toCPU(mesh::UnstructuredMeshObject{D, P}) where {D, P<:CPU} = mesh
+CellBasedModels.toGPU(mesh::UnstructuredMeshObject{D, P}) where {D, P<:GPUCuda} = mesh
+
+function toCPU(field::UnstructuredMeshObject{P}) where {P<:GPUCuda}
+    UnstructuredMeshObject(
+        field._scope,
+        field.a === nothing ? nothing : toCPU(field.a),
+        field.n === nothing ? nothing : toCPU(field.n),
+        field.e === nothing ? nothing : toCPU(field.e),
+        field.f === nothing ? nothing : toCPU(field.f),
+        field.v === nothing ? nothing : toCPU(field.v),
+    )
+end
+
+function toGPU(field::UnstructuredMeshObject{P}) where {P<:CPU}
+    UnstructuredMeshObject(
+        field._scope,
+        field.a === nothing ? nothing : toGPU(field.a),
+        field.n === nothing ? nothing : toGPU(field.n),
+        field.e === nothing ? nothing : toGPU(field.e),
+        field.f === nothing ? nothing : toGPU(field.f),
+        field.v === nothing ? nothing : toGPU(field.v),
+    )
+end
 
 # function Base.iterate(
 #         community::CommunityPoint{<:CommunityPointMeta{TR, S}}, 

@@ -1,6 +1,3 @@
-function toCPU(x); @warn "No GPU found or no conversion for type $(typeof(x)). Fallback to CPU."; x end   # fallback definitions
-function toGPU(x); @warn "No GPU found or no conversion for type $(typeof(x)). Fallback to CPU."; x end
-
 # Generic unpackig for broadcasting
 
 @inline function unpack_voa(bc::Broadcast.Broadcasted{Style}, i) where {Style}

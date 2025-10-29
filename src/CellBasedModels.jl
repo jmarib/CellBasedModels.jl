@@ -36,7 +36,8 @@ module CellBasedModels
 
     #Platforms
     # export CPU, GPU
-    # include("./platforms.jl")
+    export toCPU, toGPU
+    include("./platforms.jl")
 
     #Abstraact types
     # include("./neighbors/abstractTypes.jl")
@@ -48,7 +49,7 @@ module CellBasedModels
     # include("./AgentStructure/auxiliar.jl")
 
     #Agent
-    export toCPU, toGPU#, loopOverAgents, removeAgent!, addAgent!
+    #, loopOverAgents, removeAgent!, addAgent!
     include("./AgentStructure/auxiliar.jl")
     export UnstructuredMesh, UnstructuredMeshObjectField, UnstructuredMeshObject
     include("./AgentStructure/unstructuredMesh.jl")
