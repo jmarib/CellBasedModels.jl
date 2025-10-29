@@ -1,7 +1,7 @@
 ######################################################################################################
 # AGENT STRUCTURE
 ######################################################################################################
-struct UnstructuredMesh{D, S, PA, PN, PE, PF, PV}
+struct UnstructuredMesh{D, S, PA, PN, PE, PF, PV} <: AbstractMesh
 
     propertiesAgent::Union{NamedTuple, Nothing}                   # Dictionary to hold agent properties
     propertiesNode::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
@@ -498,7 +498,7 @@ end
 struct UnstructuredMeshObject{
             P, D, S,
             A, N, E, F, V
-    }
+    } <: AbstractMeshObject
     _scopePos::Int
     a::A
     n::N
@@ -599,36 +599,36 @@ function show(io::IO, x::UnstructuredMeshObject{P, D, S}) where {P, D, S}
     end
 end
 
-# function Base.show(io::IO, x::Type{UnstructuredMeshObject{
-#             P, D, S, A, N, E, F, V,
-#         }}) where {
-#             P, D, S, A, N, E, F, V,
-#         }
-#     println(io, "UnstructuredMesh{platform=", P, ", dimension=", D, ", scopePosition=", S,)
-#     CellBasedModels.show(io, x)
-#     println(io, "}")
-# end
+function Base.show(io::IO, x::Type{UnstructuredMeshObject{
+            P, D, S, A, N, E, F, V,
+        }}) where {
+            P, D, S, A, N, E, F, V,
+        }
+    println(io, "UnstructuredMesh{platform=", P, ", dimension=", D, ", scopePosition=", S,)
+    CellBasedModels.show(io, x)
+    println(io, "}")
+end
 
-# function show(io::IO, ::Type{UnstructuredMeshObject{
-#             P, D, S, A, N, E, F, V,
-#         }}) where {
-#             P, D, S, A, N, E, F, V,
-#         }
-#     for ((propsmeta,props), propsnames) in zip(((A,), (N,), (E,), (F,), (V,)), ("PropertiesAgent", "PropertiesNode", "PropertiesEdge", "PropertiesFace", "PropertiesVolume"))
-#         if props !== Nothing
-#             print(io, "\t", string(propsnames), "Meta", "=(")
-#             # println(propsmeta)
-#             CellBasedModels.show(io, propsmeta)
-#             println(io, ")")
-#             print(io, "\t", string(propsnames), "=(")
-#             for (i, (n, t)) in enumerate(zip(props.parameters[1], props.parameters[2].parameters))
-#                 i > 1 && print(io, ", ")
-#                 print(io, string(n), "::", t)
-#             end
-#             println(io, ")")
-#         end
-#     end
-# end
+function show(io::IO, ::Type{UnstructuredMeshObject{
+            P, D, S, A, N, E, F, V,
+        }}) where {
+            P, D, S, A, N, E, F, V,
+        }
+    for ((propsmeta,props), propsnames) in zip(((A,), (N,), (E,), (F,), (V,)), ("PropertiesAgent", "PropertiesNode", "PropertiesEdge", "PropertiesFace", "PropertiesVolume"))
+        if props !== Nothing
+            print(io, "\t", string(propsnames), "Meta", "=(")
+            # println(propsmeta)
+            CellBasedModels.show(io, propsmeta)
+            println(io, ")")
+            print(io, "\t", string(propsnames), "=(")
+            for (i, (n, t)) in enumerate(zip(props.parameters[1], props.parameters[2].parameters))
+                i > 1 && print(io, ", ")
+                print(io, string(n), "::", t)
+            end
+            println(io, ")")
+        end
+    end
+end
 
 function Base.length(::UnstructuredMeshObject{P, D, S, A, N, E, F, V}) where {P, D, S, A, N, E, F, V}
     c = 0

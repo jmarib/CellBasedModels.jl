@@ -1,8 +1,8 @@
 import CellBasedModels: UnstructuredMeshObjectField, UnstructuredMeshObject
 import CellBasedModels: toCPU, toGPU, CPU, CPUSinglethread, CPUMultithreading
 
-CellBasedModels.toCPU(field::UnstructuredMeshObjectField{P}) where {P<:CPU} = field
-CellBasedModels.toGPU(field::UnstructuredMeshObjectField{P}) where {P<:GPU} = field
+toCPU(field::UnstructuredMeshObjectField{P}) where {P<:CPU} = field
+toGPU(field::UnstructuredMeshObjectField{P}) where {P<:GPU} = field
 
 function toCPU(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda}
     UnstructuredMeshObjectField(
@@ -47,8 +47,8 @@ Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = fiel
 lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._NCache[1]
 lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._NCache[1]
 
-CellBasedModels.toCPU(mesh::UnstructuredMeshObject{D, P}) where {D, P<:CPU} = mesh
-CellBasedModels.toGPU(mesh::UnstructuredMeshObject{D, P}) where {D, P<:GPUCuda} = mesh
+toCPU(mesh::UnstructuredMeshObject{D, P}) where {D, P<:CPU} = mesh
+toGPU(mesh::UnstructuredMeshObject{D, P}) where {D, P<:GPUCuda} = mesh
 
 function toCPU(field::UnstructuredMeshObject{P}) where {P<:GPUCuda}
     UnstructuredMeshObject(

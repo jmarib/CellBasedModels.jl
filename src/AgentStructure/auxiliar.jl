@@ -1,3 +1,8 @@
+# Auxiliar
+
+abstract type AbstractMesh end
+abstract type AbstractMeshObject end
+
 # Broadcast Unpacking
 
 # 1D unpacking
@@ -35,6 +40,19 @@ unpack_voa(x, ::Any, ::Any, ::Any) = x
     return v
 end
 unpack_args_voa(::Any, ::Any, ::Any, args::Tuple{}) = ()
+
+# 4D unpacking
+@inline function unpack_voa(bc::Broadcast.Broadcasted{Style}, i, j, n, k) where {Style}
+    Broadcast.Broadcasted{Style}(bc.f, unpack_args_voa(i, j, n, k, bc.args))
+end
+unpack_voa(x, ::Any, ::Any, ::Any, ::Any) = x
+
+@inline function unpack_args_voa(i, j, n, k, args::Tuple)
+    v = (unpack_voa(args[1], i, j, n, k), unpack_args_voa(i, j, n, k, Base.tail(args))...)
+    return v
+end
+unpack_args_voa(::Any, ::Any, ::Any, ::Any, args::Tuple{}) = ()
+
 
 # # function unpack_voa(x::AbstractArray{T, N}, i) where {T, N}
 # #     @view x[ntuple(x -> Colon(), N - 1)..., i]
