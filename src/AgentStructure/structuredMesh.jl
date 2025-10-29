@@ -1,13 +1,9 @@
 ######################################################################################################
 # AGENT STRUCTURE
 ######################################################################################################
-struct UnstructuredMesh{D, S, PA, PN, PE, PF, PV} <: AbstractMesh
+struct StructuredMesh{D, S, P} <: AbstractMesh
 
-    propertiesAgent::Union{NamedTuple, Nothing}                   # Dictionary to hold agent properties
-    propertiesNode::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
-    propertiesEdge::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
-    propertiesFace::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
-    propertiesVolume::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
+    properties::Union{NamedTuple, Nothing}                   # Dictionary to hold agent properties
 
 end
 
@@ -22,28 +18,14 @@ function _posMerge(properties, defaultParameters)
     return merge(defaultParameters, properties)
 end
 
-function UnstructuredMesh(
+function StructuredMesh(
     dims::Int;
-    propertiesAgent::Union{NamedTuple, Nothing}=nothing,
-    propertiesNode::Union{NamedTuple, Nothing}=nothing,
-    propertiesEdge::Union{NamedTuple, Nothing}=nothing,
-    propertiesFace::Union{NamedTuple, Nothing}=nothing,
-    propertiesVolume::Union{NamedTuple, Nothing}=nothing,
-    scopePosition::Symbol = :propertiesAgent,
+    p::Union{NamedTuple, Nothing}=nothing,
 )
-
-    if !(scopePosition in fieldnames(UnstructuredMesh))
-        error("scopePosition must be one of $(fieldnames(UnstructuredMesh)). Found $scopePosition")
-    end
 
     if dims < 0 || dims > 3
         error("dims must be between 0 and 3. Found $dims")
     end
-    defaultParameters = (
-        x = dims >= 1 ? Parameter(AbstractFloat, description="Position in x (protected parameter)", dimensions=:L, _scope=scopePosition) : nothing,
-        y = dims >= 2 ? Parameter(AbstractFloat, description="Position in y (protected parameter)", dimensions=:L, _scope=scopePosition) : nothing,
-        z = dims >= 3 ? Parameter(AbstractFloat, description="Position in z (protected parameter)", dimensions=:L, _scope=scopePosition) : nothing,
-    )
     defaultParameters = NamedTuple{Tuple(k for (k,v) in pairs(defaultParameters) if v !== nothing)}(
         (v for (k,v) in pairs(defaultParameters) if v !== nothing)
     )
@@ -64,23 +46,23 @@ function UnstructuredMesh(
         end
     end
 
-    return UnstructuredMesh{dims, scopePosition, (typeof(i) for i in properties)...}(
+    return StructuredMesh{dims, scopePosition, (typeof(i) for i in properties)...}(
         properties...
     )
 end
 
 const MESHSCOPES = (:propertiesAgent, :propertiesNode, :propertiesEdge, :propertiesFace, :propertiesVolume)
-spatialDims(x::UnstructuredMesh{D}) where {D} = D
-scope(x::UnstructuredMesh{D, S}) where {D, S} = S
+spatialDims(x::StructuredMesh{D}) where {D} = D
+scope(x::StructuredMesh{D, S}) where {D, S} = S
 scope2scopePosition(x::Symbol) = findfirst(==(x), MESHSCOPES)
 scopePosition2scope(x::Int) = MESHSCOPES[x]
 
-function Base.show(io::IO, x::UnstructuredMesh{D}) where {D}
-    println(io, "UnstructuredMesh with dimensions $(D): \n")
+function Base.show(io::IO, x::StructuredMesh{D}) where {D}
+    println(io, "StructuredMesh with dimensions $(D): \n")
     CellBasedModels.show(io, x)
 end
 
-function show(io::IO, x::UnstructuredMesh{D}) where {D}
+function show(io::IO, x::StructuredMesh{D}) where {D}
     for p in propertynames(x)
         props = getfield(x, p)
         if props !== nothing
@@ -100,8 +82,8 @@ function show(io::IO, x::UnstructuredMesh{D}) where {D}
     end
 end
 
-function Base.show(io::IO, ::Type{UnstructuredMesh{D, S, PA, PN, PE, PF, PV}}) where {D, S, PA, PN, PE, PF, PV}
-    println(io, "UnstructuredMesh{dims=", D, ", scopePosition=", S, ",")
+function Base.show(io::IO, ::Type{StructuredMesh{D, S, PA, PN, PE, PF, PV}}) where {D, S, PA, PN, PE, PF, PV}
+    println(io, "StructuredMesh{dims=", D, ", scopePosition=", S, ",")
     for (props, propsnames) in zip((PA, PN, PE, PF, PV), MESHSCOPES)
         if props !== Nothing
             print(io, "\t", string(propsnames), "=(")
@@ -116,9 +98,9 @@ function Base.show(io::IO, ::Type{UnstructuredMesh{D, S, PA, PN, PE, PF, PV}}) w
 end
 
 ######################################################################################################
-# UnstructuredMeshObjectField
+# StructuredMeshObjectField
 ######################################################################################################
-struct UnstructuredMeshObjectField{
+struct StructuredMeshObjectField{
             P, 
             PR, PRN, PRC,
             IDVI, IDAI,    
@@ -141,9 +123,9 @@ struct UnstructuredMeshObjectField{
     _AddedAgents::VVNT
     _FlagOverflow::AB
 end
-Adapt.@adapt_structure UnstructuredMeshObjectField
+Adapt.@adapt_structure StructuredMeshObjectField
 
-function UnstructuredMeshObjectField(
+function StructuredMeshObjectField(
         meshProperties::Union{NamedTuple, Nothing};
         N::Int=0,
         NCache::Int=0,
@@ -193,7 +175,7 @@ function UnstructuredMeshObjectField(
     PRN = _NP
     PRC = typeof(_pReference)
 
-    UnstructuredMeshObjectField{
+    StructuredMeshObjectField{
             P, 
             PR, PRN, PRC, 
             IDVI, IDAI,    
@@ -218,7 +200,7 @@ function UnstructuredMeshObjectField(
         )
 end
 
-function UnstructuredMeshObjectField(
+function StructuredMeshObjectField(
             _p,
             _NP,
             _pReference,
@@ -252,7 +234,7 @@ function UnstructuredMeshObjectField(
     SI = typeof(_NRemovedThread)
     VVNT = typeof(_AddedAgents)
 
-    UnstructuredMeshObjectField{
+    StructuredMeshObjectField{
             P, 
             PR, PRN, PRC,
             IDVI, IDAI,    
@@ -277,7 +259,7 @@ function UnstructuredMeshObjectField(
         )
 end
 
-function Base.show(io::IO, x::UnstructuredMeshObjectField{
+function Base.show(io::IO, x::StructuredMeshObjectField{
             P, 
             PR, PRN, PRC, 
             IDVI, IDAI,    
@@ -289,7 +271,7 @@ function Base.show(io::IO, x::UnstructuredMeshObjectField{
             AI, VB, SI, VVNT, AB, 
         } 
     
-    println(io, "UnstructuredMeshObjectField: \n")
+    println(io, "StructuredMeshObjectField: \n")
     println(io, @sprintf("\t%-25s %-15s", "Property", "DataType"))
     println(io, "\t" * repeat("-", 40))
     println(io, @sprintf("\t%-25s %-15s", "_id", IDVI))
@@ -314,13 +296,13 @@ function Base.show(io::IO, x::UnstructuredMeshObjectField{
 
 end
 
-function Base.show(io::IO, x::Type{UnstructuredMeshObjectField})
-    println(io, "UnstructuredMeshObjectField{")
+function Base.show(io::IO, x::Type{StructuredMeshObjectField})
+    println(io, "StructuredMeshObjectField{")
     # CellBasedModels.show(io, x)
     println(io, "}")
 end
 
-function show(io::IO, ::Type{UnstructuredMeshObjectField{
+function show(io::IO, ::Type{StructuredMeshObjectField{
             P, 
             PR, PRN, PRC,
             IDVI, IDAI,
@@ -347,7 +329,7 @@ function show(io::IO, ::Type{UnstructuredMeshObjectField{
     print(io, "_FlagOverflow::", AB, ", ")
 end
 
-@generated function Base.getproperty(field::UnstructuredMeshObjectField{
+@generated function Base.getproperty(field::StructuredMeshObjectField{
             P, 
             PR, PRN, PRC,
             IDVI, IDAI,
@@ -361,7 +343,7 @@ end
     # build a clause for each fieldname in T
     general = [
         :(if s === $(QuoteNode(name)); return getfield(field, $(QuoteNode(name))); end)
-        for name in fieldnames(UnstructuredMeshObjectField)
+        for name in fieldnames(StructuredMeshObjectField)
     ]
     cases = [
         :(s === $(QuoteNode(name)) && return @views getfield(getfield(field, :_p), $(QuoteNode(name)))[1:length(field)])
@@ -371,20 +353,20 @@ end
     quote
         $(general...)
         $(cases...)
-        error("Unknown property: $s for of the UnstructuredMeshObject.")
+        error("Unknown property: $s for of the StructuredMeshObject.")
     end
 end
 
-Base.length(field::UnstructuredMeshObjectField{P}) where {P<:CPU} = field._N[]
-Base.size(field::UnstructuredMeshObjectField) = (field._NP, length(field))
+Base.length(field::StructuredMeshObjectField{P}) where {P<:CPU} = field._N[]
+Base.size(field::StructuredMeshObjectField) = (field._NP, length(field))
 
-Base.getindex(field::UnstructuredMeshObjectField, i::Int) = field._p[i]
-Base.getindex(field::UnstructuredMeshObjectField, s::Symbol) = getproperty(field, s)
+Base.getindex(field::StructuredMeshObjectField, i::Int) = field._p[i]
+Base.getindex(field::StructuredMeshObjectField, s::Symbol) = getproperty(field, s)
 
 ## Copy
-function Base.copy(field::UnstructuredMeshObjectField)
+function Base.copy(field::StructuredMeshObjectField)
 
-    UnstructuredMeshObjectField(
+    StructuredMeshObjectField(
         NamedTuple{keys(field._p)}(
             r ? p : copy(p) for (p, r) in zip(values(field._p), field._pReference)
         ),
@@ -408,9 +390,9 @@ function Base.copy(field::UnstructuredMeshObjectField)
 end
 
 ## Zero
-function Base.zero(field::UnstructuredMeshObjectField)
+function Base.zero(field::StructuredMeshObjectField)
 
-    UnstructuredMeshObjectField(
+    StructuredMeshObjectField(
         NamedTuple{keys(field._p)}(
             r ? p : zero(p) for (p, r) in zip(values(field._p), field._pReference)
         ),
@@ -434,8 +416,8 @@ end
 
 ## Copyto!
 @eval @inline function Base.copyto!(
-    dest::UnstructuredMeshObjectField{P, PR, PRN, PRC},
-    bc::UnstructuredMeshObjectField{P, PR, PRN, PRC}) where {P, PR, PRN, PRC}
+    dest::StructuredMeshObjectField{P, PR, PRN, PRC},
+    bc::StructuredMeshObjectField{P, PR, PRN, PRC}) where {P, PR, PRN, PRC}
     N = length(dest)
     @inbounds for i in 1:PRN
         if !bc._pReference[i]
@@ -446,34 +428,34 @@ end
 end
 
 ## Broadcasting
-struct UnstructuredMeshObjectFieldStyle{N} <: Broadcast.AbstractArrayStyle{N} end
+struct StructuredMeshObjectFieldStyle{N} <: Broadcast.AbstractArrayStyle{N} end
 
 # Allow constructing the style from Val or Int
-UnstructuredMeshObjectFieldStyle(::Val{N}) where {N} = UnstructuredMeshObjectFieldStyle{N}()
-UnstructuredMeshObjectFieldStyle(N::Int) = UnstructuredMeshObjectFieldStyle{N}()
+StructuredMeshObjectFieldStyle(::Val{N}) where {N} = StructuredMeshObjectFieldStyle{N}()
+StructuredMeshObjectFieldStyle(N::Int) = StructuredMeshObjectFieldStyle{N}()
 
-# Your UnstructuredMeshObjectField acts like a 2D array
-Base.BroadcastStyle(::Type{<:UnstructuredMeshObjectField}) = UnstructuredMeshObjectFieldStyle{2}()
+# Your StructuredMeshObjectField acts like a 2D array
+Base.BroadcastStyle(::Type{<:StructuredMeshObjectField}) = StructuredMeshObjectFieldStyle{2}()
 
 # Combine styles safely
-Base.Broadcast.result_style(::UnstructuredMeshObjectFieldStyle{M}) where {M} =
-    UnstructuredMeshObjectFieldStyle{M}()
-Base.Broadcast.result_style(::UnstructuredMeshObjectFieldStyle{M}, ::UnstructuredMeshObjectFieldStyle{N}) where {M,N} =
-    UnstructuredMeshObjectFieldStyle{max(M,N)}()
-Base.Broadcast.result_style(::UnstructuredMeshObjectFieldStyle{M}, ::Base.Broadcast.AbstractArrayStyle{N}) where {M,N} =
-    UnstructuredMeshObjectFieldStyle{max(M,N)}()
-Base.Broadcast.result_style(::Base.Broadcast.AbstractArrayStyle{M}, ::UnstructuredMeshObjectFieldStyle{N}) where {M,N} =
-    UnstructuredMeshObjectFieldStyle{max(M,N)}()
+Base.Broadcast.result_style(::StructuredMeshObjectFieldStyle{M}) where {M} =
+    StructuredMeshObjectFieldStyle{M}()
+Base.Broadcast.result_style(::StructuredMeshObjectFieldStyle{M}, ::StructuredMeshObjectFieldStyle{N}) where {M,N} =
+    StructuredMeshObjectFieldStyle{max(M,N)}()
+Base.Broadcast.result_style(::StructuredMeshObjectFieldStyle{M}, ::Base.Broadcast.AbstractArrayStyle{N}) where {M,N} =
+    StructuredMeshObjectFieldStyle{max(M,N)}()
+Base.Broadcast.result_style(::Base.Broadcast.AbstractArrayStyle{M}, ::StructuredMeshObjectFieldStyle{N}) where {M,N} =
+    StructuredMeshObjectFieldStyle{max(M,N)}()
 
-Broadcast.broadcastable(x::UnstructuredMeshObjectField) = x
+Broadcast.broadcastable(x::StructuredMeshObjectField) = x
 
 for type in [
-        Broadcast.Broadcasted{<:UnstructuredMeshObjectField},
-        Broadcast.Broadcasted{<:UnstructuredMeshObjectFieldStyle},
+        Broadcast.Broadcasted{<:StructuredMeshObjectField},
+        Broadcast.Broadcasted{<:StructuredMeshObjectFieldStyle},
     ]
 
     @eval @inline function Base.copyto!(
-            dest::UnstructuredMeshObjectField{P, PR, PRN, PRC},
+            dest::StructuredMeshObjectField{P, PR, PRN, PRC},
             bc::$type) where {P, PR, PRN, PRC}
         bc = Broadcast.flatten(bc)
         N = length(dest)
@@ -488,18 +470,18 @@ for type in [
 end
 
 # # drop axes because it is easier to recompute
-@inline function unpack_voa(bc::Broadcast.Broadcasted{<:UnstructuredMeshObjectField}, i)
+@inline function unpack_voa(bc::Broadcast.Broadcasted{<:StructuredMeshObjectField}, i)
     Broadcast.Broadcasted(bc.f, unpack_args_voa(i, bc.args))
 end
 
-function unpack_voa(x::UnstructuredMeshObjectField, i)
+function unpack_voa(x::StructuredMeshObjectField, i)
     @views x._p[i][1:length(x)]
 end
 
 ######################################################################################################
-# UnstructuredMeshObjectField
+# StructuredMeshObjectField
 ######################################################################################################
-struct UnstructuredMeshObject{
+struct StructuredMeshObject{
             P, D, S,
             A, N, E, F, V
     } <: AbstractMeshObject
@@ -510,13 +492,13 @@ struct UnstructuredMeshObject{
     f::F
     v::V
 end
-Adapt.@adapt_structure UnstructuredMeshObject
+Adapt.@adapt_structure StructuredMeshObject
 
-mesh2Object(::Type{<:UnstructuredMesh}) = UnstructuredMeshObject
-object2mesh(::Type{<:UnstructuredMeshObject}) = UnstructuredMesh
+mesh2Object(::Type{<:StructuredMesh}) = StructuredMeshObject
+object2mesh(::Type{<:StructuredMeshObject}) = StructuredMesh
 
-function UnstructuredMeshObject(
-        mesh::UnstructuredMesh{D, S, PA, PN, PE, PF, PV};
+function StructuredMeshObject(
+        mesh::StructuredMesh{D, S, PA, PN, PE, PF, PV};
         agentN::Integer=0,
         agentNCache::Union{Nothing, Integer}=nothing,
         nodeN::Integer=0,
@@ -545,13 +527,13 @@ function UnstructuredMeshObject(
         elseif NC < N
             error("$(name)NCache must be greater than or equal to $(name)N. Found $(name)NCache=$NC and $(name)N=$N")
         end
-        field = UnstructuredMeshObjectField(p, N = N, NCache = NC)
+        field = StructuredMeshObjectField(p, N = N, NCache = NC)
         push!(fields, field)
     end
 
     scopePosition = scope2scopePosition(S)
 
-    return UnstructuredMeshObject{
+    return StructuredMeshObject{
             P, D, S,
             (typeof(i) for i in fields)...
         }(
@@ -559,7 +541,7 @@ function UnstructuredMeshObject(
         )
 end
 
-function UnstructuredMeshObject(
+function StructuredMeshObject(
             scopePos, a, n, e, f, v
     )
 
@@ -573,7 +555,7 @@ function UnstructuredMeshObject(
     end
     S = scopePosition2scope(scopePos)
 
-    return UnstructuredMeshObject{
+    return StructuredMeshObject{
             P, D, S,
             typeof(a), typeof(n), typeof(e), typeof(f), typeof(v)
         }(
@@ -581,13 +563,13 @@ function UnstructuredMeshObject(
         )
 end
 
-function Base.show(io::IO, x::UnstructuredMeshObject{P, D, S}) where {P, D, S}
-    println(io, "\nUnstructuredMeshObject platform=$P dimensions=$D scopePosition=$S \n")
+function Base.show(io::IO, x::StructuredMeshObject{P, D, S}) where {P, D, S}
+    println(io, "\nStructuredMeshObject platform=$P dimensions=$D scopePosition=$S \n")
     CellBasedModels.show(io, x)
     println(io, "\t* -> indicates passed by reference\n")
 end
 
-function show(io::IO, x::UnstructuredMeshObject{P, D, S}, full=false) where {P, D, S}
+function show(io::IO, x::StructuredMeshObject{P, D, S}, full=false) where {P, D, S}
     for (f,n) in zip(
             (x.a, x.n, x.e, x.f, x.v),
             ("Agent Properties", "Node Properties", "Edge Properties", "Face Properties", "Volume Properties"),
@@ -617,17 +599,17 @@ function show(io::IO, x::UnstructuredMeshObject{P, D, S}, full=false) where {P, 
     end
 end
 
-function Base.show(io::IO, x::Type{UnstructuredMeshObject{
+function Base.show(io::IO, x::Type{StructuredMeshObject{
             P, D, S, A, N, E, F, V,
         }}) where {
             P, D, S, A, N, E, F, V,
         }
-    println(io, "UnstructuredMesh{platform=", P, ", dimension=", D, ", scopePosition=", S,)
+    println(io, "StructuredMesh{platform=", P, ", dimension=", D, ", scopePosition=", S,)
     CellBasedModels.show(io, x)
     println(io, "}")
 end
 
-function show(io::IO, ::Type{UnstructuredMeshObject{
+function show(io::IO, ::Type{StructuredMeshObject{
             P, D, S, A, N, E, F, V,
         }}) where {
             P, D, S, A, N, E, F, V,
@@ -648,7 +630,7 @@ function show(io::IO, ::Type{UnstructuredMeshObject{
     end
 end
 
-function Base.length(::UnstructuredMeshObject{P, D, S, A, N, E, F, V}) where {P, D, S, A, N, E, F, V}
+function Base.length(::StructuredMeshObject{P, D, S, A, N, E, F, V}) where {P, D, S, A, N, E, F, V}
     c = 0
     A !== nothing ? c += 1 : nothing
     N !== nothing ? c += 1 : nothing
@@ -658,34 +640,34 @@ function Base.length(::UnstructuredMeshObject{P, D, S, A, N, E, F, V}) where {P,
     return c
 end    
 
-Base.size(mesh::UnstructuredMeshObject) = (length(mesh),)
+Base.size(mesh::StructuredMeshObject) = (length(mesh),)
 
-Base.ndims(::UnstructuredMeshObject) = 1
-Base.ndims(::Type{<:UnstructuredMeshObject}) = 1
+Base.ndims(::StructuredMeshObject) = 1
+Base.ndims(::Type{<:StructuredMeshObject}) = 1
 
-function Base.eltype(::Type{<:UnstructuredMeshObject})
+function Base.eltype(::Type{<:StructuredMeshObject})
     return CellBasedModels.concreteDataType(AbstractFloat)
 end
 
-function Base.iterate(mesh::UnstructuredMeshObject, state = 1)
+function Base.iterate(mesh::StructuredMeshObject, state = 1)
     state >= length(mesh) ? nothing : (state, state + 1)
 end
 
-platform(mesh::UnstructuredMeshObject{P}) where {P} = P
-spatialDims(::UnstructuredMeshObject{P, D}) where {P, D} = D
-scope(::UnstructuredMeshObject{P, D, S}) where {P, D, S} = S
-scopePosition(x::UnstructuredMeshObject) = x._scopePos
+platform(mesh::StructuredMeshObject{P}) where {P} = P
+spatialDims(::StructuredMeshObject{P, D}) where {P, D} = D
+scope(::StructuredMeshObject{P, D, S}) where {P, D, S} = S
+scopePosition(x::StructuredMeshObject) = x._scopePos
 
 #Getindex
-Base.getindex(community::UnstructuredMeshObject, i::Integer) =
+Base.getindex(community::StructuredMeshObject, i::Integer) =
     getfield(community, (:a, :n, :e, :f, :v)[i])
-Base.getindex(community::UnstructuredMeshObject, s::Symbol) =
+Base.getindex(community::StructuredMeshObject, s::Symbol) =
     getfield(community, s)
 
 ## Copy
-function Base.copy(field::UnstructuredMeshObject)
+function Base.copy(field::StructuredMeshObject)
 
-    UnstructuredMeshObject(
+    StructuredMeshObject(
         field._scopePos,
         field.a === nothing ? nothing : copy(field.a),
         field.n === nothing ? nothing : copy(field.n),
@@ -697,9 +679,9 @@ function Base.copy(field::UnstructuredMeshObject)
 end
 
 ## Zero
-function Base.zero(field::UnstructuredMeshObject)
+function Base.zero(field::StructuredMeshObject)
 
-    UnstructuredMeshObject(
+    StructuredMeshObject(
         field._scopePos,
         field.a === nothing ? nothing : zero(field.a),
         field.n === nothing ? nothing : zero(field.n),
@@ -712,8 +694,8 @@ end
 
 ## Copyto!
 @eval @inline function Base.copyto!(
-    dest::UnstructuredMeshObject,
-    bc::UnstructuredMeshObject)
+    dest::StructuredMeshObject,
+    bc::StructuredMeshObject)
     @inbounds for i in (:a, :n, :e, :f, :v)
         if dest[i] !== nothing && bc[i] !== nothing
             copyto!(dest[i], bc[i])
@@ -723,34 +705,34 @@ end
 end
 
 ## Broadcasting
-struct UnstructuredMeshObjectStyle{N} <: Broadcast.AbstractArrayStyle{N} end
+struct StructuredMeshObjectStyle{N} <: Broadcast.AbstractArrayStyle{N} end
 
 # Allow constructing the style from Val or Int
-UnstructuredMeshObjectStyle(::Val{N}) where {N} = UnstructuredMeshObjectStyle{N}()
-UnstructuredMeshObjectStyle(N::Int) = UnstructuredMeshObjectStyle{N}()
+StructuredMeshObjectStyle(::Val{N}) where {N} = StructuredMeshObjectStyle{N}()
+StructuredMeshObjectStyle(N::Int) = StructuredMeshObjectStyle{N}()
 
-# Your UnstructuredMeshObject acts like a 2D array
-Base.BroadcastStyle(::Type{<:UnstructuredMeshObject}) = UnstructuredMeshObjectStyle{1}()
+# Your StructuredMeshObject acts like a 2D array
+Base.BroadcastStyle(::Type{<:StructuredMeshObject}) = StructuredMeshObjectStyle{1}()
 
 # Combine styles safely
-Base.Broadcast.result_style(::UnstructuredMeshObjectStyle{M}) where {M} =
-    UnstructuredMeshObjectStyle{M}()
-Base.Broadcast.result_style(::UnstructuredMeshObjectStyle{M}, ::UnstructuredMeshObjectStyle{N}) where {M,N} =
-    UnstructuredMeshObjectStyle{max(M,N)}()
-Base.Broadcast.result_style(::UnstructuredMeshObjectStyle{M}, ::Base.Broadcast.AbstractArrayStyle{N}) where {M,N} =
-    UnstructuredMeshObjectStyle{max(M,N)}()
-Base.Broadcast.result_style(::Base.Broadcast.AbstractArrayStyle{M}, ::UnstructuredMeshObjectStyle{N}) where {M,N} =
-    UnstructuredMeshObjectStyle{max(M,N)}()
+Base.Broadcast.result_style(::StructuredMeshObjectStyle{M}) where {M} =
+    StructuredMeshObjectStyle{M}()
+Base.Broadcast.result_style(::StructuredMeshObjectStyle{M}, ::StructuredMeshObjectStyle{N}) where {M,N} =
+    StructuredMeshObjectStyle{max(M,N)}()
+Base.Broadcast.result_style(::StructuredMeshObjectStyle{M}, ::Base.Broadcast.AbstractArrayStyle{N}) where {M,N} =
+    StructuredMeshObjectStyle{max(M,N)}()
+Base.Broadcast.result_style(::Base.Broadcast.AbstractArrayStyle{M}, ::StructuredMeshObjectStyle{N}) where {M,N} =
+    StructuredMeshObjectStyle{max(M,N)}()
 
-Broadcast.broadcastable(x::UnstructuredMeshObject) = x
+Broadcast.broadcastable(x::StructuredMeshObject) = x
 
 for type in [
-        Broadcast.Broadcasted{<:UnstructuredMeshObject},
-        Broadcast.Broadcasted{<:UnstructuredMeshObjectStyle},
+        Broadcast.Broadcasted{<:StructuredMeshObject},
+        Broadcast.Broadcasted{<:StructuredMeshObjectStyle},
     ]
 
     @eval @inline function Base.copyto!(
-            dest::UnstructuredMeshObject{P, A, N, E, F, V},
+            dest::StructuredMeshObject{P, A, N, E, F, V},
             bc::$type) where {P, A, N, E, F, V}
         bc = Broadcast.flatten(bc)
         @inbounds for i in 1:length(dest)
@@ -770,9 +752,9 @@ for type in [
 end
 
 #Specialized unpacking
-@inline function unpack_voa(bc::Broadcast.Broadcasted{<:UnstructuredMeshObject}, i, j, n)
+@inline function unpack_voa(bc::Broadcast.Broadcasted{<:StructuredMeshObject}, i, j, n)
     Broadcast.Broadcasted(bc.f, unpack_args_voa(i, j, n, bc.args))
 end
-function unpack_voa(x::UnstructuredMeshObject, i, j, n)
+function unpack_voa(x::StructuredMeshObject, i, j, n)
     @views x[i][j][1:n]
 end

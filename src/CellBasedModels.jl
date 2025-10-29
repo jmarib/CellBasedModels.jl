@@ -54,7 +54,7 @@ module CellBasedModels
     export UnstructuredMesh, UnstructuredMeshObjectField, UnstructuredMeshObject
     include("./AgentStructure/unstructuredMesh.jl")
     export MultiMesh, MultiMeshObject
-    include("./AgentStructure/multiMeshes.jl")
+    include("./AgentStructure/multiMesh.jl")
     # export AgentGlobal
     # include("./AgentStructure/agentGlobal.jl")
     # export AgentPoint, CommunityPoint

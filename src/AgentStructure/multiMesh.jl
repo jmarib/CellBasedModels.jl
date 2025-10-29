@@ -23,12 +23,13 @@ function MultiMesh(;kwargs...)
             @assert D == CellBasedModels.spatialDims(p) "All meshes in MultiMesh must have the same spatial dimensions. Mesh $n has spatial dimensions $(CellBasedModels.spatialDims(p)) while previous meshes have spatial dimensions $D"
         end
     end
+    kwargs = NamedTuple{Tuple(keys(kwargs))}(values(kwargs))
 
     MultiMesh{D, typeof(kwargs)}(kwargs)
 
 end
 
-function Base.show(io::IO, x::MultiMesh{D}) where {D}
+function Base.show(io::IO, x::MultiMesh{D, M}) where {D, M}
     println(io, "MultiMeshMesh with dimensions $(D): \n")
     for (p, n) in pairs(x._meshes)
         println(io, "Mesh: $p")
@@ -48,7 +49,7 @@ spatialDims(::MultiMesh{D, M}) where {D, M} = D
 Base.length(mm::MultiMesh{D, M}) where {D, M} = length(mm._meshes)
 
 Base.getindex(mm::MultiMesh{D, M}, key) where {D, M} = mm._meshes[key]
-Base.getproperty(mm::MultiMesh{D, M}, key) where {D, M} = key == :_meshes ? getfield(mm, key) : getfield(getfield(mm, :_meshes), key)
+Base.getproperty(mm::MultiMesh{D, M}, key::Symbol) where {D, M} = key == :_meshes ? getfield(mm, key) : getfield(getfield(mm, :_meshes), key)
 
 ######################################################################################################
 # MultiMeshObject
@@ -63,19 +64,19 @@ Adapt.@adapt_structure MultiMeshObject
 function MultiMeshObject(mm::MultiMesh{D, M}; kwargs...) where {D, M}
 
     mm_keys = keys(mm._meshes)
-    for n in keys(mm._meshes)
-        if ! n in mm_keys
+    for n in keys(kwargs)
+        if !(n in mm_keys)
             error("Mesh name $n not found in MultiMesh.")
         end
     end
 
     meshes = []
     for (n, mesh) in pairs(mm._meshes)
-        m = typeof(mesh)
-        mobj = CellBasedModels.eval(Meta.parse("$(m)Object"))
-        push!(meshes, mobj(mm._meshes[n]; kwargs...))
+        mobj = mesh2Object(typeof(mesh))
+        kwarg = n in keys(kwargs) ? kwargs[n] : ()
+        push!(meshes, mobj(mm._meshes[n]; kwarg...))
     end
-    meshes = NamedTuple{mm_keys}(meshes...)
+    meshes = NamedTuple{mm_keys}(tuple(meshes...))
 
     P = platform()
 
@@ -111,6 +112,17 @@ end
 Base.length(mm::MultiMeshObject{P, D, M}) where {P, D, M} = length(mm._meshes)
 Base.size(mm::MultiMeshObject{P, D, M}) where {P, D, M} = (length(mm._meshes),)
 
+Base.ndims(::MultiMeshObject) = 1
+Base.ndims(::Type{<:MultiMeshObject}) = 1
+
+function Base.eltype(::Type{<:MultiMeshObject})
+    return CellBasedModels.concreteDataType(AbstractFloat)
+end
+
+function Base.iterate(mm::MultiMeshObject, state = 1)
+    state >= length(mm) ? nothing : (state, state + 1)
+end
+
 Base.getindex(mm::MultiMeshObject{P, D, M}, key) where {P, D, M} = mm._meshes[key]
 
 @generated function Base.getproperty(field::MultiMeshObject{P, D, M}, s::Symbol) where {P, D, M}
@@ -119,7 +131,7 @@ Base.getindex(mm::MultiMeshObject{P, D, M}, key) where {P, D, M} = mm._meshes[ke
         for name in fieldnames(MultiMeshObject)
     ]
     cases = [
-        :(s === $(QuoteNode(name)) && return @views getfield(getfield(field, :_p), $(QuoteNode(name)))[1:length(field)])
+        :(s === $(QuoteNode(name)) && return getfield(getfield(field, :_meshes), $(QuoteNode(name))))
         for name in M.parameters[1]
     ]
 
@@ -219,5 +231,5 @@ end
     Broadcast.Broadcasted(bc.f, unpack_args_voa(i, j, k, n, bc.args))
 end
 function unpack_voa(x::MultiMeshObject, i, j, k, n)
-    @views x[i][j][k][1:n]
+    @views x[i][j]._p[k][1:n]
 end
