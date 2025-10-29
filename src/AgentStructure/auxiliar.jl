@@ -1,5 +1,6 @@
-# Generic unpackig for broadcasting
+# Broadcast Unpacking
 
+# 1D unpacking
 @inline function unpack_voa(bc::Broadcast.Broadcasted{Style}, i) where {Style}
     Broadcast.Broadcasted{Style}(bc.f, unpack_args_voa(i, bc.args))
 end
@@ -10,6 +11,30 @@ unpack_voa(x, ::Any) = x
     return v
 end
 unpack_args_voa(::Any, args::Tuple{}) = ()
+
+# 2D unpacking
+@inline function unpack_voa(bc::Broadcast.Broadcasted{Style}, i, n) where {Style}
+    Broadcast.Broadcasted{Style}(bc.f, unpack_args_voa(i, n, bc.args))
+end
+unpack_voa(x, ::Any, ::Any) = x
+
+@inline function unpack_args_voa(i, n, args::Tuple)
+    v = (unpack_voa(args[1], i, n), unpack_args_voa(i, n, Base.tail(args))...)
+    return v
+end
+unpack_args_voa(::Any, ::Any, args::Tuple{}) = ()
+
+# 3D unpacking
+@inline function unpack_voa(bc::Broadcast.Broadcasted{Style}, i, j, n) where {Style}
+    Broadcast.Broadcasted{Style}(bc.f, unpack_args_voa(i, j, n, bc.args))
+end
+unpack_voa(x, ::Any, ::Any, ::Any) = x
+
+@inline function unpack_args_voa(i, j, n, args::Tuple)
+    v = (unpack_voa(args[1], i, j, n), unpack_args_voa(i, j, n, Base.tail(args))...)
+    return v
+end
+unpack_args_voa(::Any, ::Any, ::Any, args::Tuple{}) = ()
 
 # # function unpack_voa(x::AbstractArray{T, N}, i) where {T, N}
 # #     @view x[ntuple(x -> Colon(), N - 1)..., i]

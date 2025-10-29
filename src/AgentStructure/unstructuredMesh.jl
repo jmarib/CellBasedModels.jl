@@ -50,7 +50,7 @@ function UnstructuredMesh(
 
     properties = []
     for (pn, p) in zip(
-        (:propertiesAgent, :propertiesNode, :propertiesEdge, :propertiesFace, :propertiesVolume),
+        MESHSCOPES,
         (propertiesAgent, propertiesNode, propertiesEdge, propertiesFace, propertiesVolume)
     )
         if scopePosition === pn && p === nothing
@@ -64,21 +64,16 @@ function UnstructuredMesh(
         end
     end
 
-    scope = Dict(
-        :propertiesAgent => 1,
-        :propertiesNode => 2,
-        :propertiesEdge => 3,
-        :propertiesFace => 4,
-        :propertiesVolume => 5,
-    )[scopePosition] 
-
-    return UnstructuredMesh{dims, scope, (typeof(i) for i in properties)...}(
+    return UnstructuredMesh{dims, scopePosition, (typeof(i) for i in properties)...}(
         properties...
     )
 end
 
+const MESHSCOPES = (:propertiesAgent, :propertiesNode, :propertiesEdge, :propertiesFace, :propertiesVolume)
 spatialDims(x::UnstructuredMesh{D}) where {D} = D
-scopePosition(x::UnstructuredMesh{D, S}) where {D, S} = S
+scope(x::UnstructuredMesh{D, S}) where {D, S} = S
+scope2scopePosition(x::Symbol) = findfirst(==(x), MESHSCOPES)
+scopePosition2scope(x::Int) = MESHSCOPES[x]
 
 function Base.show(io::IO, x::UnstructuredMesh{D}) where {D}
     println(io, "UnstructuredMesh with dimensions $(D): \n")
@@ -103,7 +98,7 @@ end
 
 function Base.show(io::IO, ::Type{UnstructuredMesh{D, S, PA, PN, PE, PF, PV}}) where {D, S, PA, PN, PE, PF, PV}
     println(io, "UnstructuredMesh{dims=", D, ", scopePosition=", S, ",")
-    for (props, propsnames) in zip((PA, PN, PE, PF, PV), (:propertiesAgent, :propertiesNode, :propertiesEdge, :propertiesFace, :propertiesVolume))
+    for (props, propsnames) in zip((PA, PN, PE, PF, PV), MESHSCOPES)
         if props !== Nothing
             print(io, "\t", string(propsnames), "=(")
             for (i, (n, t)) in enumerate(zip(props.parameters[1], props.parameters[2].parameters))
@@ -379,6 +374,9 @@ end
 Base.length(field::UnstructuredMeshObjectField{P}) where {P<:CPU} = field._N[]
 Base.size(field::UnstructuredMeshObjectField) = (field._NP, length(field))
 
+Base.getindex(field::UnstructuredMeshObjectField, i::Int) = field._p[i]
+Base.getindex(field::UnstructuredMeshObjectField, s::Symbol) = getproperty(field, s)
+
 ## Copy
 function Base.copy(field::UnstructuredMeshObjectField)
 
@@ -501,7 +499,7 @@ struct UnstructuredMeshObject{
             P, D, S,
             A, N, E, F, V
     }
-    _scope::Int
+    _scopePos::Int
     a::A
     n::N
     e::E
@@ -544,19 +542,21 @@ function UnstructuredMeshObject(
         push!(fields, field)
     end
 
+    scopePosition = scope2scopePosition(S)
+
     return UnstructuredMeshObject{
             P, D, S,
             (typeof(i) for i in fields)...
         }(
-            S, fields...
+            scopePosition, fields...
         )
 end
 
 function UnstructuredMeshObject(
-            scope, a, n, e, f, v
+            scopePos, a, n, e, f, v
     )
 
-    D = length(filter(k -> k in (:x, :y, :z), (a, n, e, f, v)[scope]._p))
+    D = length(filter(k -> k in (:x, :y, :z), keys((agentProperties=a, nodeProperties=n, edgeProperties=e, faceProperties=f, volumeProperties=v)[scopePos]._p)))
     P = platform()
     for i in (a, n, e, f, v)
         if i !== nothing
@@ -564,13 +564,13 @@ function UnstructuredMeshObject(
             break
         end
     end
-    S = scope
+    S = scopePosition2scope(scopePos)
 
     return UnstructuredMeshObject{
             P, D, S,
             typeof(a), typeof(n), typeof(e), typeof(f), typeof(v)
         }(
-            scope, a, n, e, f, v
+            scopePos, a, n, e, f, v
         )
 end
 
@@ -653,6 +653,9 @@ function Base.iterate(mesh::UnstructuredMeshObject, state = 1)
     state >= length(mesh) ? nothing : (state, state + 1)
 end
 
+scope(::UnstructuredMeshObject{P, D, S}) where {P, D, S} = S
+scopePosition(x::UnstructuredMeshObject) = x._scopePos
+
 #Getindex
 Base.getindex(community::UnstructuredMeshObject, i::Integer) =
     getfield(community, (:a, :n, :e, :f, :v)[i])
@@ -663,7 +666,7 @@ Base.getindex(community::UnstructuredMeshObject, s::Symbol) =
 function Base.copy(field::UnstructuredMeshObject)
 
     UnstructuredMeshObject(
-        field._scope,
+        field._scopePos,
         field.a === nothing ? nothing : copy(field.a),
         field.n === nothing ? nothing : copy(field.n),
         field.e === nothing ? nothing : copy(field.e),
@@ -677,7 +680,7 @@ end
 function Base.zero(field::UnstructuredMeshObject)
 
     UnstructuredMeshObject(
-        field._scope,
+        field._scopePos,
         field.a === nothing ? nothing : zero(field.a),
         field.n === nothing ? nothing : zero(field.n),
         field.e === nothing ? nothing : zero(field.e),
@@ -727,24 +730,29 @@ for type in [
     ]
 
     @eval @inline function Base.copyto!(
-            dest::UnstructuredMeshObject{P, PR, PRN, PRC},
-            bc::$type) where {P, PR, PRN, PRC}
+            dest::UnstructuredMeshObject{P, A, N, E, F, V},
+            bc::$type) where {P, A, N, E, F, V}
         bc = Broadcast.flatten(bc)
-        N = length(dest)
-        @inbounds for i in 1:N
-            if dest[i] !== nothing
-                copyto!(dest[i], unpack_voa(bc, i))
+        @inbounds for i in 1:length(dest)
+            d = dest[i]
+            if d !== nothing
+                np, n = size(d)
+                for j in 1:np
+                    if !d._pReference[j]
+                        dest_ = @views dest[i]._p[j][1:n]
+                        copyto!(dest_, unpack_voa(bc, i, j, n))
+                    end
+                end
             end
         end
         dest
     end
 end
 
-# # drop axes because it is easier to recompute
-@inline function unpack_voa(bc::Broadcast.Broadcasted{<:UnstructuredMeshObject}, i)
-    Broadcast.Broadcasted(bc.f, unpack_args_voa(i, bc.args))
+#Specialized unpacking
+@inline function unpack_voa(bc::Broadcast.Broadcasted{<:UnstructuredMeshObject}, i, j, n)
+    Broadcast.Broadcasted(bc.f, unpack_args_voa(i, j, n, bc.args))
 end
-
-function unpack_voa(x::UnstructuredMeshObject, i)
-    x[i]
+function unpack_voa(x::UnstructuredMeshObject, i, j, n)
+    @views x[i][j][1:n]
 end

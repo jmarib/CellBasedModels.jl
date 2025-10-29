@@ -35,7 +35,7 @@ import StaticArrays: SizedVector
 
                 @test mesh isa UnstructuredMesh
                 @test CellBasedModels.spatialDims(mesh) == dims
-                @test CellBasedModels.scopePosition(mesh) in 1:5
+                @test CellBasedModels.scope(mesh) in all_scopes
                 @test getfield(mesh, scope) !== nothing
             end
         end
@@ -226,7 +226,7 @@ import StaticArrays: SizedVector
                     volumeN=2, volumeNCache=4
                 )
                 @test obj isa UnstructuredMeshObject
-                @test obj._scope == CellBasedModels.scopePosition(mesh)
+                @test obj._scopePos == CellBasedModels.scopePosition(obj)
                 @test obj.a isa Union{Nothing, UnstructuredMeshObjectField}
                 @test obj.n isa Union{Nothing, UnstructuredMeshObjectField}
                 @test obj.e isa Union{Nothing, UnstructuredMeshObjectField}
@@ -342,7 +342,7 @@ import StaticArrays: SizedVector
                     volumeN=2, volumeNCache=4
                 )
                 obj2[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
-                @. obj2[scope_index] = obj[scope_index] * 0.1 + 3.0
+                @. obj2 = obj * 0.1 + 3.0
                 @test obj2[scope_index].a == fill(3.7, 2)
                 @test obj2[scope_index]._p.a == [3.7, 3.7, 0.0, 0.0]
                 @test obj2[scope_index].b == fill(0, 2)
@@ -351,7 +351,7 @@ import StaticArrays: SizedVector
                     obj_gpu = toGPU(obj)
                     obj2_gpu = toGPU(obj2)
                     obj2_gpu[scope_index].a .= 0.0
-                    @. obj2_gpu[scope_index] = obj_gpu[scope_index] * 0.1 + 3.0
+                    @. obj2_gpu = obj_gpu * 0.1 + 3.0
                     @test Array(obj2_gpu[scope_index].a) == fill(3.7, 2)
                     @test Array(obj2_gpu[scope_index]._p.a) == [3.7, 3.7, 0.0, 0.0]
                     @test Array(obj2_gpu[scope_index].b) == fill(0, 2)
@@ -377,7 +377,7 @@ import StaticArrays: SizedVector
                     volumeN=2, volumeNCache=4
                 )
                 obj2[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
-                DifferentialEquations.DiffEqBase.@.. obj2[scope_index] = obj[scope_index] * 0.1 + 3.0
+                DifferentialEquations.DiffEqBase.@.. obj2 = obj * 0.1 + 3.0
                 @test obj2[scope_index].a == fill(3.7, 2)
                 @test obj2[scope_index]._p.a == [3.7, 3.7, 0.0, 0.0]
                 @test obj2[scope_index].b == fill(0, 2)
@@ -386,7 +386,7 @@ import StaticArrays: SizedVector
                     obj_gpu = toGPU(obj)
                     obj2_gpu = toGPU(obj2)
                     obj2_gpu[scope_index].a .= 0.0
-                    DifferentialEquations.DiffEqBase.@.. obj2_gpu[scope_index] = obj_gpu[scope_index] * 0.1 + 3.0
+                    DifferentialEquations.DiffEqBase.@.. obj2_gpu = obj_gpu * 0.1 + 3.0
                     @test Array(obj2_gpu[scope_index].a) == fill(3.7, 2)
                     @test Array(obj2_gpu[scope_index]._p.a) == [3.7, 3.7, 0.0, 0.0]
                     @test Array(obj2_gpu[scope_index].b) == fill(0, 2)
@@ -414,7 +414,7 @@ import StaticArrays: SizedVector
 
                 # DifferentialEquations.jl compatibility
                 function fODE!(du, u, p, t)
-                    @. du[scope_index].a.a = 0.1
+                    @. du[scope_index].a = 1
                     return
                 end
                 obj = UnstructuredMeshObject(mesh, 
@@ -424,200 +424,31 @@ import StaticArrays: SizedVector
                     faceN=2, faceNCache=4, 
                     volumeN=2, volumeNCache=4
                 )
+                obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
                 prob = ODEProblem(fODE!, obj, (0.0, 1.0))
                 integrator = init(prob, Euler(), dt=0.1, save_everystep=false)
                 for i in 1:10
                     step!(integrator)
                 end
                 @test all(integrator.u[scope_index].a .≈ 1.0)
+                if CUDA.has_cuda()
+                    obj = UnstructuredMeshObject(mesh, 
+                        agentN=2, agentNCache=4, 
+                        nodeN=2, nodeNCache=4, 
+                        edgeN=2, edgeNCache=4, 
+                        faceN=2, faceNCache=4, 
+                        volumeN=2, volumeNCache=4
+                    )
+                    obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
+                    obj_gpu = toGPU(obj)
+                    prob = ODEProblem(fODE!, obj_gpu, (0.0, 1.0))
+                    integrator = init(prob, Euler(), dt=0.1, save_everystep=false)
+                    for i in 1:10
+                        step!(integrator)
+                    end
+                    @test all(Array(integrator.u[scope_index].a) .≈ 1.0)
+                end
             end
         end
     end
-
-    # @testset "Community" begin
-
-    #     agent = AgentPoint(2)
-    #     community = CommunityPoint(agent, 2)
-    #     community = CommunityPoint(agent, 3, 5)
-    #     @test community._m._N[] == 3
-    #     @test community._m._NCache[] == 5
-    #     @test community._m.id[1:3] == collect(1:3)
-    #     @test community._m._idMax[] == 3
-    #     @test community._m._flagsRemoved == zeros(Bool, 5)
-    #     @test community._m._NRemoved[] == 0
-    #     @test all(community._m._NRemovedThread .== zeros(Int,Threads.nthreads()))
-    #     @test community._m._NAdded[] == 0
-    #     @test all(community._m._NAddedThread .== zeros(Int,Threads.nthreads()))
-    #     @test community._m._addedAgents == [NamedTuple{(:x,:y),Tuple{Float64,Float64}}[] for i in 1:Threads.nthreads()]
-    #     @test community._m._flagOverflow[] == false
-    #     @test all([length(p) == 5 for p in community._pa])
-
-    #     agent = AgentPoint(
-    #             2,
-    #             propertiesAgent = (
-    #                 velocity = AbstractFloat,
-    #                 idea = Integer,
-    #                 ok = Bool,
-    #             )
-    #         )
-
-    #     community = CommunityPoint(agent, 3, 5)
-
-    #     f!(x) = @. x = 5 * (x + 1.0)
-
-    #     community = CellBasedModels.setCopyParameters(community, (:x, :velocity))
-    #     f!(community)
-    #     @test community.x == 5 .* ones(3)
-    #     @test community.y == zeros(3)
-    #     @test community.velocity == 5 .* ones(3)
-    #     @test community.idea == zeros(Int, 3)
-    #     @test community.ok == zeros(Bool, 3)
-
-    #     community = CommunityPoint(agent, 3, 5)
-    #     fODE!(du, u, p, t) = @. du.x = 1
-    #     prob = ODEProblem(fODE!, community, (0.0, 1.0))
-    #     integrator = init(prob, Euler(), dt=0.1, save_everystep=false)
-    #     for i in 1:10
-    #         step!(integrator)
-    #     end
-    #     @test all(integrator.u.x .≈ 1.)
-
-    #     if CUDA.has_cuda()
-
-    #         community = CommunityPoint(agent, 3, 5)
-    #         community = CellBasedModels.setCopyParameters(community, (:x, :velocity))
-    #         community_gpu = toGPU(community)
-
-    #         f_gpu!(x) = @. x = 5 * (x + 1.0)
-
-    #         f_gpu!(community_gpu)
-    #         @test Array(community_gpu.x) == 5 .* ones(3)
-    #         @test Array(community_gpu.y) == zeros(3)
-    #         @test Array(community_gpu.velocity) == 5 .* ones(3)
-    #         @test Array(community_gpu.idea) == zeros(Int, 3)
-    #         @test Array(community_gpu.ok) == zeros(Bool, 3)
-
-    #         f_gpu_kernel!(community)  = nothing
-
-    #         community = CommunityPoint(agent, 3, 5)
-    #         community = CellBasedModels.setCopyParameters(community, (:x,))
-    #         community_gpu = toGPU(community)
-    #         CUDA.@cuda f_gpu_kernel!(community_gpu)
-
-    #         community = CommunityPoint(agent, 3, 5)
-    #         community_gpu = toGPU(community)
-    #         prob = ODEProblem(fODE!, community_gpu, (0.0, 1.0))
-    #         integrator = init(prob, Euler(), dt=0.1, save_everystep=false)
-    #         for i in 1:10
-    #             step!(integrator)
-    #         end
-    #         @test all(integrator.u.x .≈ 1.)
-
-    #     end
-
-    #     # Kernel iterator
-    #     kernel_iterate!(community, x) = @inbounds Threads.@threads for i in loopOverAgents(community)
-    #         x[i] += 1
-    #     end
-
-    #     agent = AgentPoint(3)
-    #     community = CommunityPoint(agent, 10, 20)
-    #     x = zeros(Float64, 20)
-    #     kernel_iterate!(community, x)
-    #     @test [x[i] for i in 1:10] == ones(10)
-    #     @test [x[i] for i in 11:20] == zeros(10)
-
-    #     if CUDA.has_cuda()
-
-    #         community = CommunityPoint(agent, 10, 20)
-    #         community_gpu = toGPU(community)
-    #         x = CUDA.zeros(Float64, 20)
-
-    #         kernel_iterate_gpu!(community, x) = @inbounds for i in loopOverAgents(community)
-    #             x[i] = (blockIdx().x - 1) * blockDim().x + threadIdx().x
-    #         end
-
-    #         CUDA.@cuda threads=5 kernel_iterate_gpu!(community_gpu, x)
-    #         @test Array(x)[1:5] == 1:5
-    #         @test Array(x)[6:10] == 1:5
-    #         @test Array(x)[11:end] == zeros(10)
-
-    #     end
-
-    #     # removeAgent!
-    #     agent = AgentPoint(2)
-    #     community = CommunityPoint(agent, 3, 5)
-
-    #     removeAgent!(community, 2)
-
-    #     @test community._m._flagsRemoved == [false, true, false, false, false]
-
-    #     community = CommunityPoint(agent, 3, 5)
-    #     removeAgent!(community, 5)
-
-    #     @test community._m._flagsRemoved == [false, false, false, false, false]
-
-    #     if CUDA.has_cuda()
-
-    #         agent = AgentPoint(2)
-    #         community = CommunityPoint(agent, 3, 5)
-    #         community_gpu = toGPU(community)
-
-    #         @test_throws ErrorException removeAgent!(community_gpu, 2)
-
-    #         function removeAgent_kernel!(community, pos)
-    #             CUDA.@cuprintln(typeof(community._m))
-    #             removeAgent!(community, pos)
-    #             return
-    #         end
-
-    #         CUDA.@cuda removeAgent_kernel!(community_gpu, 2)
-
-    #         @test Array(community_gpu._m._flagsRemoved) == [false, true, false, false, false]
-
-    #         community = CommunityPoint(agent, 3, 5)
-    #         community_gpu = toGPU(community)
-    #         CUDA.@cuda removeAgent_kernel!(community_gpu, 5)
-
-    #         @test community._m._flagsRemoved == [false, false, false, false, false]
-
-    #     end
-
-    #     # addAgent!
-    #     agent = AgentPoint(2)
-    #     community = CommunityPoint(agent, 3, 5)
-
-    #     addAgent!(community, (x=1.,y=2.))
-
-    #     @test community._m.id[4] == 4
-    #     @test community._pa.x[4] == 1.
-    #     @test community._pa.y[4] == 2.
-    #     @test community._m._NNew[] == 4
-    #     @test community._m._idMax[] == 4
-
-    #     if CUDA.has_cuda()
-
-    #         agent = AgentPoint(2)
-    #         community = CommunityPoint(agent, 3, 5)
-    #         community_gpu = toGPU(community)
-
-    #         @test_throws ErrorException addAgent!(community_gpu, (x=1.,y=2.))
-
-    #         function addAgent_kernel!(community)
-    #             addAgent!(community, (x=1.,y=2.))
-    #             return
-    #         end
-
-    #         CUDA.@cuda addAgent_kernel!(community_gpu)
-
-    #         @test Array(community_gpu._m.id)[4] == 4
-    #         @test Array(community_gpu._pa.x)[4] == 1.
-    #         @test Array(community_gpu._pa.y)[4] == 2.
-    #         @test Array(community_gpu._m._NNew)[1] == 4
-    #         @test Array(community_gpu._m._idMax)[1] == 4
-
-    #     end
-
-    # end
-
 end

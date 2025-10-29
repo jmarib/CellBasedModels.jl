@@ -52,7 +52,7 @@ CellBasedModels.toGPU(mesh::UnstructuredMeshObject{D, P}) where {D, P<:GPUCuda} 
 
 function toCPU(field::UnstructuredMeshObject{P}) where {P<:GPUCuda}
     UnstructuredMeshObject(
-        field._scope,
+        field._scopePos,
         field.a === nothing ? nothing : toCPU(field.a),
         field.n === nothing ? nothing : toCPU(field.n),
         field.e === nothing ? nothing : toCPU(field.e),
@@ -63,7 +63,7 @@ end
 
 function toGPU(field::UnstructuredMeshObject{P}) where {P<:CPU}
     UnstructuredMeshObject(
-        field._scope,
+        field._scopePos,
         field.a === nothing ? nothing : toGPU(field.a),
         field.n === nothing ? nothing : toGPU(field.n),
         field.e === nothing ? nothing : toGPU(field.e),
