@@ -287,6 +287,7 @@ import StaticArrays: SizedVector
                     @test typeof(obj_gpu[scope_index]._id) <: CUDA.CuArray
                     @test typeof(obj_gpu[scope_index].a) <: CUDA.CuArray
                     obj_cpu = toCPU(obj_gpu)
+                    @test typeof(obj_cpu) == typeof(obj)
                 end
 
                 # copyto!

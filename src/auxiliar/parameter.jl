@@ -21,7 +21,7 @@ type, dimensions, default value, and description.
 - `description::String` — Text description of the parameter’s purpose or meaning.
 - `_updated::Bool` — Internal flag used to track whether the parameter is modified.
 - `_DE::Bool` — Internal flag indicating if the parameter is a variable of a differential equation.
-- `_scope::Union{Symbol, Nothing}` — Internal field indicating the scope of the parameter (e.g. `:agent`, `:edges`). This parameter is just informative and set automatically.
+- `_modifiedIn::Union{Symbol, Nothing}` — Internal field indicating the scope of the parameter (e.g. `:agent`, `:edges`). This parameter is just informative and set automatically.
 
 ---
 
@@ -58,12 +58,12 @@ mutable struct Parameter{D}
     description::String
     _updated::Bool
     _DE::Bool
-    _scope::Union{Symbol, Nothing}
+    _modifiedIn::Vector{Symbol}
 
     function Parameter(dataType::DataType;
                        dimensions::Union{Nothing, Symbol, Expr}=nothing,
                        defaultValue=nothing,
-                       description::String="", _updated::Bool=false, _DE::Bool=false, _scope::Union{Symbol, Nothing}=nothing)
+                       description::String="", _updated::Bool=false, _DE::Bool=false, _modifiedIn::Vector{Symbol}=Vector{Symbol}())
 
         if dataType <: Integer
             dataType = Integer
@@ -80,7 +80,7 @@ mutable struct Parameter{D}
             error("Parameter defaultValue must be of type $dataType or nothing. Found: $(typeof(defaultValue))")
         end
 
-        new{dataType}(dimensions, defaultValue, description, _updated, _DE, _scope)
+        new{dataType}(dimensions, defaultValue, description, _updated, _DE, _modifiedIn)
     
     end
 end
@@ -88,9 +88,10 @@ end
 function Base.show(io::IO, x::Parameter{D}) where D
     println("Parameter: ")
     println("\t DataType: ", D)
-    println("\n Scope: ", x._scope)
+    println("\n Scope: ", x._modifiedIn)
     println("\t Dimensions: ", x.dimensions)
     println("\t Default Value: ", x.defaultValue)
+    println("\t ModifiedIn: ", tuple(x._modifiedIn))
     println("\t Description: ", x.description)
 end
 
@@ -129,15 +130,15 @@ param_tuple = parameterConvert(params)
 # NamedTuple with (:velocity, :temperature) => (Parameter(...), Parameter(...))
 ```
 """
-function parameterConvert(parameters; scope::Union{Symbol, Nothing}=nothing)
+function parameterConvert(parameters; modifiedIn::Vector{Symbol}=Symbol[])
     keys_tuple = Tuple(keys(parameters))
     l = []
     for i in keys_tuple
         if parameters[i] isa Parameter
             push!(l, parameters[i])
-            l[end]._scope = scope
+            l[end]._modifiedIn = modifiedIn
         elseif parameters[i] isa DataType
-            push!(l, Parameter(parameters[i], _scope=scope))
+            push!(l, Parameter(parameters[i], _modifiedIn=modifiedIn))
         else
             error("Parameters must be of type Parameter or DataType. Given: $(parameters[i]) for parameter $i")
         end

@@ -14,7 +14,8 @@ benchmark = true #just for internal optimizations
     # include("testParameter.jl")
 
     # include("testUnstructuredMesh.jl")
-    include("testMultiMesh.jl")
+    include("testStructuredMesh.jl")
+    # include("testMultiMesh.jl")
 
     # include("testRecursiveCachedArrays.jl")
     # include("testTypeIntegrators.jl")

@@ -4,8 +4,8 @@ abstract type CPUSinglethread <: CPU end
 abstract type CPUMultithreading <: CPU end
 abstract type GPU <: AbstractPlatform end
 
-function toCPU(x); @warn "No GPU found or no conversion for type $(typeof(x)). Fallback to CPU."; x end   # fallback definitions
-function toGPU(x); @warn "No GPU found or no conversion for type $(typeof(x)). Fallback to CPU."; x end
+function toCPU(x); x end   # fallback definitions
+function toGPU(x); @warn "No GPU found. Fallback to CPU."; x end
 
 function platform()
     if Threads.nthreads() > 1

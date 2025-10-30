@@ -4,7 +4,7 @@ using DifferentialEquations
 using Adapt
 import StaticArrays: SizedVector
 
-@testset verbose = true "ABM - StructuredMesh" begin
+@testset verbose = verbose "ABM - StructuredMesh" begin
 
     #######################################################################
     # HELPERS
@@ -17,7 +17,7 @@ import StaticArrays: SizedVector
     #######################################################################
     # TEST 1: StructuredMesh
     #######################################################################
-    @testset "StructuredMesh - full coverage" begin
+    @testset "StructuredMesh - construction" begin
         for dims in 1:3
             mesh = StructuredMesh(
                 dims;
@@ -43,7 +43,7 @@ import StaticArrays: SizedVector
     #######################################################################
     # TEST 3: StructuredMeshObject
     #######################################################################
-    @testset "StructuredMeshObject - integrated construction" begin
+    @testset "StructuredMeshObject - construction" begin
         for dims in 1:3
             mesh = StructuredMesh(
                 dims;
@@ -61,6 +61,14 @@ import StaticArrays: SizedVector
             @test_throws ErrorException StructuredMeshObject(mesh, simulationBox=[0,1], gridSpacing=[0.5, 0.5, 0.5][1:dims])
             @test_throws ErrorException StructuredMeshObject(mesh, simulationBox=[0 1;0 1;0 1][1:dims,:], gridSpacing=[1.0, 1.0, 1.0, 1.0])
 
+        end
+    end
+    @testset "StructuredMeshObject - copy" begin
+        for dims in 1:3
+            mesh = StructuredMesh(
+                dims;
+                properties = props,
+            )
             # Copy
             obj = StructuredMeshObject(mesh, 
                 simulationBox=[0 1;0 1;0 1][1:dims,:], gridSpacing=[0.5, 0.5, 0.5][1:dims]
@@ -72,6 +80,14 @@ import StaticArrays: SizedVector
             @test all(objCopy.p.a .== 7.0)
             @test all(objCopy.p.b .== 0)
 
+        end
+    end
+    @testset "StructuredMeshObject - zero" begin
+        for dims in 1:3
+            mesh = StructuredMesh(
+                dims;
+                properties = props,
+            )
             # zero
             obj = StructuredMeshObject(mesh, 
                 simulationBox=[0 1;0 1;0 1][1:dims,:], gridSpacing=[0.5, 0.5, 0.5][1:dims]
@@ -83,6 +99,14 @@ import StaticArrays: SizedVector
             @test all(objZero.p.a .== 7.0)
             @test all(objZero.p.b .== 0)
 
+        end
+    end
+    @testset "StructuredMeshObject - toGPU/toCPU" begin
+        for dims in 1:3
+            mesh = StructuredMesh(
+                dims;
+                properties = props,
+            )
             # toGPU/toCPU
             if CUDA.has_cuda()
                 obj = StructuredMeshObject(mesh, 
@@ -96,7 +120,15 @@ import StaticArrays: SizedVector
                 obj_cpu = toCPU(obj_gpu)
                 @test typeof(obj_cpu) == typeof(obj)
             end
+        end
+    end
 
+    @testset "StructuredMeshObject - copyto!" begin
+        for dims in 1:3
+            mesh = StructuredMesh(
+                dims;
+                properties = props,
+            )
             # copyto!
             obj = StructuredMeshObject(mesh, 
                 simulationBox=[0 1;0 1;0 1][1:dims,:], gridSpacing=[0.5, 0.5, 0.5][1:dims]
@@ -119,6 +151,15 @@ import StaticArrays: SizedVector
                 @test all(Array(obj2_gpu.p.b) .== 2)
             end
 
+        end
+    end
+
+    @testset "StructuredMeshObject - broadcasting" begin
+        for dims in 1:3
+            mesh = StructuredMesh(
+                dims;
+                properties = props,
+            )
             # Broadcast
             obj = StructuredMeshObject(mesh, 
                 simulationBox=[0 1;0 1;0 1][1:dims,:], gridSpacing=[0.5, 0.5, 0.5][1:dims]
@@ -142,7 +183,7 @@ import StaticArrays: SizedVector
                 @test all(Array(obj2_gpu.p.b) .== 0)
             end
 
-            # Broadcast
+            # Broadcast @..
             obj = StructuredMeshObject(mesh, 
                 simulationBox=[0 1;0 1;0 1][1:dims,:], gridSpacing=[0.5, 0.5, 0.5][1:dims]
             )
@@ -164,7 +205,15 @@ import StaticArrays: SizedVector
                 @test all(Array(obj2_gpu.p.a) .== 3.7)
                 @test all(Array(obj2_gpu.p.b) .== 0)
             end
-            
+        end
+    end
+
+    @testset "StructuredMeshObject - GPU kernels" begin
+        for dims in 1:3
+            mesh = StructuredMesh(
+                dims;
+                properties = props,
+            )
             # Kernel works
             if CUDA.has_cuda()
                 function test_kernel_object!(x)
@@ -179,7 +228,15 @@ import StaticArrays: SizedVector
                 obj_gpu = toGPU(obj)
                 @test_nowarn CUDA.@cuda test_kernel_object!(obj_gpu)
             end
+        end
+    end
 
+    @testset "StructuredMeshObject - DifferentialEquations compatibility" begin
+        for dims in 1:3
+            mesh = StructuredMesh(
+                dims;
+                properties = props,
+            )
             # DifferentialEquations.jl compatibility
             function fODE!(du, u, p, t)
                 @. du.p.a = 1

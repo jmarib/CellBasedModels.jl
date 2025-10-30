@@ -84,7 +84,7 @@ using BenchmarkTools
                 @test gpu_mmo isa MultiMeshObject
                 @test typeof(gpu_mmo.meshA.a.a) <: CUDA.CuArray
                 cpu_back = toCPU(gpu_mmo)
-                @test cpu_back isa MultiMeshObject
+                @test typeof(cpu_back) == typeof(mmo)
             end
         end
     end
