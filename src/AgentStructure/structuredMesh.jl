@@ -50,7 +50,7 @@ function show(io::IO, x::StructuredMesh{D}) where {D}
 end
 
 function Base.show(io::IO, ::Type{StructuredMesh{D, S, P}}) where {D, S, P}
-    println(io, "StructuredMesh{dims=", D, ", scopePosition=", S, ",")
+    println(io, "StructuredMesh{dims=", D, ", specialization=", S, ",")
     for (i, (n, t)) in enumerate(zip(P.parameters[1], P.parameters[2].parameters))
         i > 1 && print(io, ", ")
         print(io, string(n), "::", t.parameters[1])

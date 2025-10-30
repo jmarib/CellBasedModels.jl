@@ -4,7 +4,7 @@ using DifferentialEquations
 using Adapt
 using BenchmarkTools
 
-@testset verbose = true "ABM - MultiMesh (CPU + GPU)" begin
+@testset verbose = verbose "ABM - MultiMesh (CPU + GPU)" begin
 
     #######################################################################
     # HELPERS
@@ -15,8 +15,8 @@ using BenchmarkTools
     )
 
     function make_meshes(D)
-        mA = UnstructuredMesh(D; propertiesAgent=props, scopePosition=:propertiesAgent)
-        mB = UnstructuredMesh(D; propertiesNode=props, scopePosition=:propertiesNode)
+        mA = UnstructuredMesh(D; propertiesAgent=props)
+        mB = UnstructuredMesh(D; propertiesNode=props)
         return (meshA=mA, meshB=mB)
     end
 
@@ -46,8 +46,8 @@ using BenchmarkTools
         end
 
         # Invalid combinations
-        m1 = UnstructuredMesh(1; propertiesAgent=props, scopePosition=:propertiesAgent)
-        m2 = UnstructuredMesh(2; propertiesNode=props, scopePosition=:propertiesNode)
+        m1 = UnstructuredMesh(1; propertiesAgent=props)
+        m2 = UnstructuredMesh(2; propertiesNode=props)
         @test_throws AssertionError MultiMesh(meshA=m1, meshB=m2)
         @test_throws ErrorException MultiMesh(_bad=m1)
     end
@@ -131,7 +131,7 @@ using BenchmarkTools
             meshes = make_meshes(D)
             mm = MultiMesh(; meshes...)
             mmo = MultiMeshObject(mm; meshA = (agentN=2, agentNCache=4))
-            mmo.meshA.a._pReference .= ([true, true, true][1:1:D]..., false, true)
+            mmo.meshA.a._pReference .= (false, true)
             mmo2 = copy(mmo)
 
             # Basic broadcast

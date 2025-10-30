@@ -28,21 +28,16 @@ function UnstructuredMesh(
     propertiesNode::Union{NamedTuple, Nothing}=nothing,
     propertiesEdge::Union{NamedTuple, Nothing}=nothing,
     propertiesFace::Union{NamedTuple, Nothing}=nothing,
-    propertiesVolume::Union{NamedTuple, Nothing}=nothing,
-    scopePosition::Symbol = :propertiesAgent,
+    propertiesVolume::Union{NamedTuple, Nothing}=nothing
 )
-
-    if !(scopePosition in fieldnames(UnstructuredMesh))
-        error("scopePosition must be one of $(fieldnames(UnstructuredMesh)). Found $scopePosition")
-    end
 
     if dims < 0 || dims > 3
         error("dims must be between 0 and 3. Found $dims")
     end
     defaultParameters = (
-        x = dims >= 1 ? Parameter(AbstractFloat, description="Position in x (protected parameter)", dimensions=:L, _scope=scopePosition) : nothing,
-        y = dims >= 2 ? Parameter(AbstractFloat, description="Position in y (protected parameter)", dimensions=:L, _scope=scopePosition) : nothing,
-        z = dims >= 3 ? Parameter(AbstractFloat, description="Position in z (protected parameter)", dimensions=:L, _scope=scopePosition) : nothing,
+        x = dims >= 1 ? Parameter(AbstractFloat, description="Position in x (protected parameter)", dimensions=:L) : nothing,
+        y = dims >= 2 ? Parameter(AbstractFloat, description="Position in y (protected parameter)", dimensions=:L) : nothing,
+        z = dims >= 3 ? Parameter(AbstractFloat, description="Position in z (protected parameter)", dimensions=:L) : nothing,
     )
     defaultParameters = NamedTuple{Tuple(k for (k,v) in pairs(defaultParameters) if v !== nothing)}(
         (v for (k,v) in pairs(defaultParameters) if v !== nothing)
@@ -53,46 +48,45 @@ function UnstructuredMesh(
         MESHSCOPES,
         (propertiesAgent, propertiesNode, propertiesEdge, propertiesFace, propertiesVolume)
     )
-        if scopePosition === pn && p === nothing
-            error("Parameter $pn is not defined but assegned as scopePosition.")
-        elseif scopePosition == pn
-            push!(properties, _posMerge(parameterConvert(p, scope=pn), defaultParameters))
+        if :propertiesNode === pn && p === nothing
+            push!(properties, defaultParameters)
+        elseif :propertiesNode === pn 
+            push!(properties, _posMerge(parameterConvert(p), defaultParameters))
         elseif p === nothing
             push!(properties, nothing)
         else
-            push!(properties, parameterConvert(p, scope=pn))
+            push!(properties, parameterConvert(p))
         end
     end
 
-    return UnstructuredMesh{dims, scopePosition, (typeof(i) for i in properties)...}(
+    return UnstructuredMesh{dims, Nothing, (typeof(i) for i in properties)...}(
         properties...
     )
 end
 
 const MESHSCOPES = (:propertiesAgent, :propertiesNode, :propertiesEdge, :propertiesFace, :propertiesVolume)
 spatialDims(x::UnstructuredMesh{D}) where {D} = D
-scope(x::UnstructuredMesh{D, S}) where {D, S} = S
-scope2scopePosition(x::Symbol) = findfirst(==(x), MESHSCOPES)
-scopePosition2scope(x::Int) = MESHSCOPES[x]
+specialization(x::UnstructuredMesh{D, S}) where {D, S} = S
 
-function Base.show(io::IO, x::UnstructuredMesh{D}) where {D}
-    println(io, "UnstructuredMesh with dimensions $(D): \n")
-    CellBasedModels.show(io, x)
-end
-
-function show(io::IO, x::UnstructuredMesh{D}) where {D}
+function Base.show(io::IO, x::UnstructuredMesh{D, S}) where {D, S}
+    if S === Nothing
+        println(io, "UnstructuredMesh with dimensions $(D): \n")
+    else
+        println(io, "$S with dimensions $(D): \n")
+    end
     for p in propertynames(x)
         props = getfield(x, p)
         if props !== nothing
             println(io, replace(uppercase(string(p)), "PROPERTIES"=>"PROPERTIES "))
-            println(io, @sprintf("\t%-15s %-15s %-15s %-20s %-s", "Name", "DataType", "Dimensions", "Default_Value", "Description"))
+            println(io, @sprintf("\t%-15s %-15s %-15s %-20s %-20s %-s", "Name", "DataType", "Dimensions", "Default_Value", "ModifiedIn", "Description"))
             println(io, "\t" * repeat("-", 85))
             for (name, par) in pairs(props)
-                println(io, @sprintf("\t%-15s %-15s %-15s %-20s %-s", 
+                println(io, @sprintf("\t%-15s %-15s %-15s %-20s %-20s %-s", 
                     name, 
                     dtype(par), 
                     par.dimensions === nothing ? "" : string(par.dimensions),
                     par.defaultValue === nothing ? "" : string(par.defaultValue), 
+                    length(par._modifiedIn) === 0 ? "" : string(tuple(par._modifiedIn)),
                     par.description))
             end
             println(io)
@@ -101,7 +95,11 @@ function show(io::IO, x::UnstructuredMesh{D}) where {D}
 end
 
 function Base.show(io::IO, ::Type{UnstructuredMesh{D, S, PA, PN, PE, PF, PV}}) where {D, S, PA, PN, PE, PF, PV}
-    println(io, "UnstructuredMesh{dims=", D, ", scopePosition=", S, ",")
+    if S === Nothing
+        print(io, "UnstructuredMesh{dims=", D, ",")
+    else
+        print(io, string(S), "{dims=", D, ",")
+    end
     for (props, propsnames) in zip((PA, PN, PE, PF, PV), MESHSCOPES)
         if props !== Nothing
             print(io, "\t", string(propsnames), "=(")
@@ -165,7 +163,7 @@ function UnstructuredMeshObjectField(
 
     _N = Threads.Atomic{Int}(N)
     _NCache = Threads.Atomic{Int}(NCache)
-    _FlagsRemoved = Vector{Int}(zeros(Int, NCache))
+    _FlagsRemoved = zeros(Bool, NCache)
     _NRemoved = Threads.Atomic{Int}(0)
     _NRemovedThread = SizedVector{Threads.nthreads(), Int}(zeros(Int, Threads.nthreads()))
     _NAdded = Threads.Atomic{Int}(0)
@@ -497,13 +495,12 @@ function unpack_voa(x::UnstructuredMeshObjectField, i)
 end
 
 ######################################################################################################
-# UnstructuredMeshObjectField
+# UnstructuredMeshObject
 ######################################################################################################
 struct UnstructuredMeshObject{
             P, D, S,
             A, N, E, F, V
     } <: AbstractMeshObject
-    _scopePos::Int
     a::A
     n::N
     e::E
@@ -531,6 +528,7 @@ function UnstructuredMeshObject(
 
     fields = []
     P = platform()
+
     for (N,NC,p,name) in zip(
         (agentN, nodeN, edgeN, faceN, volumeN),
         (agentNCache, nodeNCache, edgeNCache, faceNCache, volumeNCache),
@@ -549,45 +547,43 @@ function UnstructuredMeshObject(
         push!(fields, field)
     end
 
-    scopePosition = scope2scopePosition(S)
-
     return UnstructuredMeshObject{
             P, D, S,
             (typeof(i) for i in fields)...
         }(
-            scopePosition, fields...
+            fields...
         )
 end
 
 function UnstructuredMeshObject(
-            scopePos, a, n, e, f, v
+            a, n, e, f, v
     )
 
-    D = length(filter(k -> k in (:x, :y, :z), keys((agentProperties=a, nodeProperties=n, edgeProperties=e, faceProperties=f, volumeProperties=v)[scopePos]._p)))
+    D = length(filter(k -> k in (:x, :y, :z), keys(n._p)))
     P = platform()
+    S = Nothing
     for i in (a, n, e, f, v)
         if i !== nothing
             P = platform(i._N)
             break
         end
     end
-    S = scopePosition2scope(scopePos)
 
     return UnstructuredMeshObject{
             P, D, S,
             typeof(a), typeof(n), typeof(e), typeof(f), typeof(v)
         }(
-            scopePos, a, n, e, f, v
+            a, n, e, f, v
         )
 end
 
 function Base.show(io::IO, x::UnstructuredMeshObject{P, D, S}) where {P, D, S}
-    println(io, "\nUnstructuredMeshObject platform=$P dimensions=$D scopePosition=$S \n")
+    println(io, "\nUnstructuredMeshObject platform=$P dimensions=$D specialization=$S \n")
     CellBasedModels.show(io, x)
     println(io, "\t* -> indicates passed by reference\n")
 end
 
-function show(io::IO, x::UnstructuredMeshObject{P, D, S}, full=false) where {P, D, S}
+function show(io::IO, x::UnstructuredMeshObject, full=false)
     for (f,n) in zip(
             (x.a, x.n, x.e, x.f, x.v),
             ("Agent Properties", "Node Properties", "Edge Properties", "Face Properties", "Volume Properties"),
@@ -617,33 +613,18 @@ function show(io::IO, x::UnstructuredMeshObject{P, D, S}, full=false) where {P, 
     end
 end
 
-function Base.show(io::IO, x::Type{UnstructuredMeshObject{
-            P, D, S, A, N, E, F, V,
-        }}) where {
-            P, D, S, A, N, E, F, V,
-        }
-    println(io, "UnstructuredMesh{platform=", P, ", dimension=", D, ", scopePosition=", S,)
+function Base.show(io::IO, x::Type{UnstructuredMeshObject{P, D, S}}) where {P, D, S}
+    println(io, "UnstructuredMesh{platform=", P, ", dimension=", D, ", specialization=", S,)
     CellBasedModels.show(io, x)
     println(io, "}")
 end
 
-function show(io::IO, ::Type{UnstructuredMeshObject{
-            P, D, S, A, N, E, F, V,
-        }}) where {
-            P, D, S, A, N, E, F, V,
-        }
+function show(io::IO, ::Type{UnstructuredMeshObject{P, D, S, A, N, E, F, V,}}) where {P, D, S, A, N, E, F, V}
     for (props, propsnames) in zip((A, N, E, F, V), ("PropertiesAgent", "PropertiesNode", "PropertiesEdge", "PropertiesFace", "PropertiesVolume"))
         if props !== Nothing
             print(io, "\t", string(propsnames), "Meta", "=(")
-            # println(propsmeta)
             CellBasedModels.show(io, props)
             println(io, ")")
-            # print(io, "\t", string(props), "=(")
-            # for (i, (n, t)) in enumerate(zip(props.parameters[1], props.parameters[2].parameters))
-            #     i > 1 && print(io, ", ")
-            #     print(io, string(n), "::", t)
-            # end
-            # println(io, ")")
         end
     end
 end
@@ -673,8 +654,8 @@ end
 
 platform(mesh::UnstructuredMeshObject{P}) where {P} = P
 spatialDims(::UnstructuredMeshObject{P, D}) where {P, D} = D
-scope(::UnstructuredMeshObject{P, D, S}) where {P, D, S} = S
-scopePosition(x::UnstructuredMeshObject) = x._scopePos
+spatialDims(::Type{<:UnstructuredMeshObject{P, D}}) where {P, D} = D
+specialization(mesh::UnstructuredMeshObject{P, D, S}) where {P, D, S} = S
 
 #Getindex
 Base.getindex(community::UnstructuredMeshObject, i::Integer) =
@@ -686,7 +667,6 @@ Base.getindex(community::UnstructuredMeshObject, s::Symbol) =
 function Base.copy(field::UnstructuredMeshObject)
 
     UnstructuredMeshObject(
-        field._scopePos,
         field.a === nothing ? nothing : copy(field.a),
         field.n === nothing ? nothing : copy(field.n),
         field.e === nothing ? nothing : copy(field.e),
@@ -700,7 +680,6 @@ end
 function Base.zero(field::UnstructuredMeshObject)
 
     UnstructuredMeshObject(
-        field._scopePos,
         field.a === nothing ? nothing : zero(field.a),
         field.n === nothing ? nothing : zero(field.n),
         field.e === nothing ? nothing : zero(field.e),

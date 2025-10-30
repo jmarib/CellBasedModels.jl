@@ -32,8 +32,8 @@ end
 function Base.show(io::IO, x::MultiMesh{D, M}) where {D, M}
     println(io, "MultiMeshMesh with dimensions $(D): \n")
     for (p, n) in pairs(x._meshes)
-        println(io, "Mesh: $p")
-        show(io, n)
+        println(io, "MeshName: $p")
+        Base.show(io, n)
         println(io, "\n")
     end
 end

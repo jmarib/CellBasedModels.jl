@@ -50,103 +50,52 @@ lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = fiel
 toCPU(mesh::UnstructuredMeshObject{D, P}) where {D, P<:CPU} = mesh
 toGPU(mesh::UnstructuredMeshObject{D, P}) where {D, P<:GPUCuda} = mesh
 
-function toCPU(field::UnstructuredMeshObject{P}) where {P<:GPUCuda}
-    UnstructuredMeshObject(
-        field._scopePos,
-        field.a === nothing ? nothing : toCPU(field.a),
-        field.n === nothing ? nothing : toCPU(field.n),
-        field.e === nothing ? nothing : toCPU(field.e),
-        field.f === nothing ? nothing : toCPU(field.f),
-        field.v === nothing ? nothing : toCPU(field.v),
+function toCPU(field::UnstructuredMeshObject{P, D, S}) where {P<:GPUCuda, D, S}
+
+    PNew = platform()
+
+    a = field.a === nothing ? nothing : toCPU(field.a)
+    n = field.n === nothing ? nothing : toCPU(field.n)
+    e = field.e === nothing ? nothing : toCPU(field.e)
+    f = field.f === nothing ? nothing : toCPU(field.f)
+    v = field.v === nothing ? nothing : toCPU(field.v)
+
+    A = typeof(a)
+    N = typeof(n)
+    E = typeof(e)
+    F = typeof(f)
+    V = typeof(v)
+
+    UnstructuredMeshObject{PNew, D, S, A, N, E, F, V}(
+        a,
+        n,
+        e,
+        f,
+        v,
     )
 end
 
-function toGPU(field::UnstructuredMeshObject{P}) where {P<:CPU}
-    UnstructuredMeshObject(
-        field._scopePos,
-        field.a === nothing ? nothing : toGPU(field.a),
-        field.n === nothing ? nothing : toGPU(field.n),
-        field.e === nothing ? nothing : toGPU(field.e),
-        field.f === nothing ? nothing : toGPU(field.f),
-        field.v === nothing ? nothing : toGPU(field.v),
+function toGPU(field::UnstructuredMeshObject{P, D, S}) where {P<:CPU, D, S}
+
+    PNew = GPUCuda
+
+    a = field.a === nothing ? nothing : toGPU(field.a)
+    n = field.n === nothing ? nothing : toGPU(field.n)
+    e = field.e === nothing ? nothing : toGPU(field.e)
+    f = field.f === nothing ? nothing : toGPU(field.f)
+    v = field.v === nothing ? nothing : toGPU(field.v)
+
+    A = typeof(a)
+    N = typeof(n)
+    E = typeof(e)
+    F = typeof(f)
+    V = typeof(v)
+
+    UnstructuredMeshObject{PNew, D, S, A, N, E, F, V}(
+        a,
+        n,
+        e,
+        f,
+        v,
     )
 end
-
-# function Base.iterate(
-#         community::CommunityPoint{<:CommunityPointMeta{TR, S}}, 
-#         state = (
-#                 gridDim().x * blockDim().x,                         #Stride
-#                 (blockIdx().x - 1) * blockDim().x + threadIdx().x  #Index
-#             )
-#     ) where {TR, S<:CUDA.CuDeviceArray}
-#     state[2] >= community._m._N[1] + 1 ? nothing : (state[2], (state[1], state[1] + state[2]))
-# end
-
-# ######################################################################################################
-# # Iterator
-# ######################################################################################################
-# function Base.iterate(
-#         iterator::CommunityPointIterator{<:CommunityPointMeta{TR, S}}, 
-#         state = (
-#                 gridDim().x * blockDim().x,                         #Stride
-#                 (blockIdx().x - 1) * blockDim().x + threadIdx().x  #Index
-#             )
-#     ) where {TR, S<:CUDA.CuDeviceArray}
-#     state[2] >= iterator.N + 1 ? nothing : (state[2], (state[1], state[1] + state[2]))
-# end
-
-# ######################################################################################################
-# # Kernel functions
-# ######################################################################################################
-# function removeAgent!(community::CommunityPoint{<:CommunityPointMeta{TR, S}}, pos::Int) where {TR, S<:CUDA.CuArray}
-#     error("removeAgent! for GPU CommunityPoint structures is not allowed outside kernels. Do it inside a kernel or on CPU before passing it to the gpu.")
-#     return
-# end
-
-# function removeAgent!(community::CommunityPoint{<:CommunityPointMeta{TR, S}}, pos::Int) where {TR, S<:CUDA.CuDeviceArray}
-#     if pos < 1 || pos > length(community)
-#         CUDA.@cuprintln "Position $pos is out of bounds for CommunityPoint with N=$(length(community)). No agent removed."
-#     else
-#         community._m._flagsRemoved[pos] = true
-#     end
-#     return
-# end
-
-# function addAgent!(community::CommunityPoint{<:CommunityPointMeta{TR, S}}, kwargs) where {TR, S<:CUDA.CuArray}
-#     error("addAgent! for GPU CommunityPoint structures is not allowed outside kernels. Do it inside a kernel or on CPU before passing it to the gpu.")
-#     return
-# end
-
-# @generated function addAgent!(community::CommunityPoint{<:CommunityPointMeta{TR, S}, D, P, T, NP}, kwargs::NamedTuple{P2, T2}) where {TR, S<:CUDA.CuDeviceArray, D, P, T, NP, P2, T2}
-
-#     for i in P2
-#         if !(i in P)
-#             error("Property $i not found in CommunityPoint. Properties that have to be provided to addAgent! are: $(P).")
-#         end
-#     end
-
-#     for i in P
-#         if !(i in P2)
-#             error("Property $i not provided in addAgent! arguments. You must provide all properties. Provided properties are: $(P2). Properties that have to be provided are: $(P).")
-#         end
-#     end
-
-#     cases = [
-#         :(community._pa.$name[newPos] = kwargs.$name)
-#         for name in P
-#     ]
-
-#     quote 
-#         newPos = CUDA.atomic_add!(pointer(community._m._NNew, 1), 1) + 1
-#         if newPos > community._m._NCache[1]
-#                 community._m._overflowFlag[1] = true
-#                 community._m._NNew[1] = community._m._NCache[1]
-#                 return
-#         else
-#                 newId = CUDA.atomic_add!(pointer(community._m._idMax, 1), 1) + 1
-#                 community._m._id[newPos] = newId
-#                 $(cases...)
-#         end
-#     end
-
-# end
