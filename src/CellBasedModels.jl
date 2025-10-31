@@ -48,6 +48,9 @@ module CellBasedModels
     # export cellInMesh, new
     # include("./AgentStructure/auxiliar.jl")
 
+    export @addRule
+    include("./integrators/addFunctions.jl")
+
     #Agent
     #, loopOverAgents, removeAgent!, addAgent!
     include("./AgentStructure/auxiliar.jl")
