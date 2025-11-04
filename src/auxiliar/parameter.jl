@@ -58,12 +58,12 @@ mutable struct Parameter{D}
     description::String
     _updated::Bool
     _DE::Bool
-    _modifiedIn::Vector{Symbol}
+    _modifiedIn::Vector{Tuple}
 
     function Parameter(dataType::DataType;
                        dimensions::Union{Nothing, Symbol, Expr}=nothing,
                        defaultValue=nothing,
-                       description::String="", _updated::Bool=false, _DE::Bool=false, _modifiedIn::Vector{Symbol}=Vector{Symbol}())
+                       description::String="", _updated::Bool=false, _DE::Bool=false, _modifiedIn::Vector{Tuple}=Vector{Tuple}())
 
         if dataType <: Integer
             dataType = Integer
@@ -166,4 +166,17 @@ function concreteDataType(D::DataType)
 end
 function standardDataType(D::DataType)
     concreteDataType(abstractDataType(D))
+end
+
+function setModifiedIn!(p::Parameter, type, scope; force=false)
+
+    _modifiedNotRule = [i for i in p._modifiedIn if i[1] != :RULE]
+    if length(_modifiedNotRule) > 0 && !force && type != :RULE
+        error("Parameter is already modified in other scopes: $(p._modifiedIn). Modifying a parameter in multiple scopes can lead to unexpected behavior as the parameter will be updated several times. If you really want to allow multiple modifications, set allowMultipleModifications=true.")
+    elseif !(scope in p._modifiedIn)
+        push!(p._modifiedIn, (type, scope))
+    end
+
+    return
+
 end

@@ -3,11 +3,12 @@
 ######################################################################################################
 struct UnstructuredMesh{D, S, PA, PN, PE, PF, PV} <: AbstractMesh
 
-    propertiesAgent::Union{NamedTuple, Nothing}                   # Dictionary to hold agent properties
-    propertiesNode::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
-    propertiesEdge::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
-    propertiesFace::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
-    propertiesVolume::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
+    a::Union{NamedTuple, Nothing}                   # Dictionary to hold agent properties
+    n::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
+    e::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
+    f::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
+    v::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
+    _functions::Dict{Symbol, Any}    # Dictionary to hold functions associated with the mesh
 
 end
 
@@ -48,9 +49,9 @@ function UnstructuredMesh(
         MESHSCOPES,
         (propertiesAgent, propertiesNode, propertiesEdge, propertiesFace, propertiesVolume)
     )
-        if :propertiesNode === pn && p === nothing
+        if :n === pn && p === nothing
             push!(properties, defaultParameters)
-        elseif :propertiesNode === pn 
+        elseif :n === pn 
             push!(properties, _posMerge(parameterConvert(p), defaultParameters))
         elseif p === nothing
             push!(properties, nothing)
@@ -60,34 +61,48 @@ function UnstructuredMesh(
     end
 
     return UnstructuredMesh{dims, Nothing, (typeof(i) for i in properties)...}(
-        properties...
+        properties...,
+        Dict{Symbol, Any}()
     )
 end
 
-const MESHSCOPES = (:propertiesAgent, :propertiesNode, :propertiesEdge, :propertiesFace, :propertiesVolume)
+const MESHSCOPES = (:a, :n, :e, :f, :v)
 spatialDims(x::UnstructuredMesh{D}) where {D} = D
 specialization(x::UnstructuredMesh{D, S}) where {D, S} = S
 
 function Base.show(io::IO, x::UnstructuredMesh{D, S}) where {D, S}
+
     if S === Nothing
         println(io, "UnstructuredMesh with dimensions $(D): \n")
     else
         println(io, "$S with dimensions $(D): \n")
     end
     for p in propertynames(x)
+        p === :_functions ? continue : nothing
         props = getfield(x, p)
         if props !== nothing
-            println(io, replace(uppercase(string(p)), "PROPERTIES"=>"PROPERTIES "))
-            println(io, @sprintf("\t%-15s %-15s %-15s %-20s %-20s %-s", "Name", "DataType", "Dimensions", "Default_Value", "ModifiedIn", "Description"))
-            println(io, "\t" * repeat("-", 85))
+            println(io, "mesh.",string(p),".")
+            println(io, @sprintf("\t%-15s %-15s %-15s %-20s %-60s %-s", "Name", "DataType", "Dimensions", "Default_Value", "ModifiedIn", "Description"))
+            println(io, "\t" * repeat("-", 145))
             for (name, par) in pairs(props)
-                println(io, @sprintf("\t%-15s %-15s %-15s %-20s %-20s %-s", 
+                println(io, @sprintf("\t%-15s %-15s %-15s %-20s %-60s %-s", 
                     name, 
                     dtype(par), 
                     par.dimensions === nothing ? "" : string(par.dimensions),
                     par.defaultValue === nothing ? "" : string(par.defaultValue), 
-                    length(par._modifiedIn) === 0 ? "" : string(tuple(par._modifiedIn)),
+                    length(par._modifiedIn) === 0 ? "" : string(tuple([i[2] for i in par._modifiedIn]...)),
                     par.description))
+            end
+            println(io)
+        end
+    end
+    println(io, "Functions")
+    for ((type, scope), funcs) in x._functions
+        println(io, "\t", scope, "(", type, "):")
+        for (i,f) in enumerate(funcs)
+            print(io, "\t\t Subfunctions ", i, ":")
+            for func in f
+                print(io, " ", func)
             end
             println(io)
         end
@@ -111,6 +126,77 @@ function Base.show(io::IO, ::Type{UnstructuredMesh{D, S, PA, PN, PE, PF, PV}}) w
         end
     end
     println(io, "}")
+end
+
+function addFunction!(mesh::UnstructuredMesh, type, scope, params, functions)
+
+    for param in params
+        if length(param) != 2
+            error("Each parameter modification must be a tuple of (field, parameter_name). Found: $param. Most probably you assigned incorrectly a parameter in a function (e.g. mesh.$field_name.$parameter_name). Valid parameters are: \n $mesh")
+        end
+
+        field_name, parameter_name = param
+
+        field = nothing
+        if field_name in fieldnames(typeof(mesh))
+            field = getfield(mesh, field_name)
+        else
+            error("Mesh does not have field $field_name. Available fields are: $(fieldnames(mesh)). Most probably you assigned incorrectly a parameter in a function (e.g. mesh.$field_name.$parameter_name). Valid parameters are: \n $mesh")
+        end  
+
+        if parameter_name in keys(field)
+            par = field[parameter_name]
+            CellBasedModels.setModifiedIn!(par, type, scope)
+        else
+            error("Parameter $parameter_name does not exist in field $field_name. Most probably you assigned incorrectly a parameter in a function (e.g. mesh.$field_name.$parameter_name). Valid parameters are: \n $mesh")
+        end
+    end
+
+    if scope in keys(mesh._functions)
+        error("Function scope $scope is already defined for the mesh. Multiple definitions are not allowed.")
+    else
+        mesh._functions[scope] = (type, functions)
+    end
+
+    return
+end
+
+function modifiedInScope(mesh::UnstructuredMesh, scope::Symbol)
+
+    modified = []
+
+    for field in (:a, :n, :e, :f, :v)
+        props = getfield(mesh, field)
+        if props !== nothing
+            for (name, par) in pairs(props)
+                for (t, s) in par._modifiedIn
+                    if s == scope
+                        push!(modified, (field, name))
+                    end
+                end
+            end
+        end
+    end
+
+    return modified
+end
+
+function modifiedInScope(mesh::UnstructuredMesh)
+
+    modified = []
+
+    for field in (:a, :n, :e, :f, :v)
+        props = getfield(mesh, field)
+        if props !== nothing
+            for (name, par) in pairs(props)
+                for (t, s) in par._modifiedIn
+                    push!(modified, (field, name))
+                end
+            end
+        end
+    end
+
+    return modified
 end
 
 ######################################################################################################
@@ -384,10 +470,37 @@ function Base.copy(field::UnstructuredMeshObjectField)
 
     UnstructuredMeshObjectField(
         NamedTuple{keys(field._p)}(
-            r ? p : copy(p) for (p, r) in zip(values(field._p), field._pReference)
+            r ? p : Base.copy(p) for (p, r) in zip(values(field._p), field._pReference)
         ),
         field._NP,
-        field._pReference,
+        Base.copy(field._pReference),
+
+        field._id,
+        field._idMax,
+
+        field._N,
+        field._NCache,
+        field._FlagsRemoved,
+        field._NRemoved,
+        field._NRemovedThread,
+        field._NAdded,
+        field._NAddedThread,
+        field._AddedAgents,
+        field._FlagOverflow,
+    )
+
+end
+
+function partialCopy(field::UnstructuredMeshObjectField, args)
+
+    _pReference = typeof(field._pReference)([!r || p in args ? false : true for (p, r) in zip(keys(field._p), field._pReference)])
+
+    UnstructuredMeshObjectField(
+        NamedTuple{keys(field._p)}(
+            r ? p : copy(p) for (p, r) in zip(values(field._p), _pReference)
+        ),
+        field._NP,
+        _pReference,
 
         field._id,
         field._idMax,
@@ -532,7 +645,7 @@ function UnstructuredMeshObject(
     for (N,NC,p,name) in zip(
         (agentN, nodeN, edgeN, faceN, volumeN),
         (agentNCache, nodeNCache, edgeNCache, faceNCache, volumeNCache),
-        (mesh.propertiesAgent, mesh.propertiesNode, mesh.propertiesEdge, mesh.propertiesFace, mesh.propertiesVolume),
+        (mesh.a, mesh.n, mesh.e, mesh.f, mesh.v),
         ("Agent", "Node", "Edge", "Face", "Volume"),
     )
         if N < 0
@@ -620,7 +733,7 @@ function Base.show(io::IO, x::Type{UnstructuredMeshObject{P, D, S}}) where {P, D
 end
 
 function show(io::IO, ::Type{UnstructuredMeshObject{P, D, S, A, N, E, F, V,}}) where {P, D, S, A, N, E, F, V}
-    for (props, propsnames) in zip((A, N, E, F, V), ("PropertiesAgent", "PropertiesNode", "PropertiesEdge", "PropertiesFace", "PropertiesVolume"))
+    for (props, propsnames) in zip((A, N, E, F, V), ("a", "PropertiesNode", "PropertiesEdge", "PropertiesFace", "PropertiesVolume"))
         if props !== Nothing
             print(io, "\t", string(propsnames), "Meta", "=(")
             CellBasedModels.show(io, props)
@@ -672,6 +785,18 @@ function Base.copy(field::UnstructuredMeshObject)
         field.e === nothing ? nothing : copy(field.e),
         field.f === nothing ? nothing : copy(field.f),
         field.v === nothing ? nothing : copy(field.v),
+    )
+
+end
+
+function partialCopy(field::UnstructuredMeshObject, copyArgs)
+
+    UnstructuredMeshObject(
+        field.a === nothing ? nothing : partialCopy(field.a, [j for (i,j) in copyArgs if i == :a]),
+        field.n === nothing ? nothing : partialCopy(field.n, [j for (i,j) in copyArgs if i == :n]),
+        field.e === nothing ? nothing : partialCopy(field.e, [j for (i,j) in copyArgs if i == :e]),
+        field.f === nothing ? nothing : partialCopy(field.f, [j for (i,j) in copyArgs if i == :f]),
+        field.v === nothing ? nothing : partialCopy(field.v, [j for (i,j) in copyArgs if i == :v]),
     )
 
 end

@@ -44,13 +44,6 @@ module CellBasedModels
     # include("./AgentStructure/abstractTypes.jl")
     # include("./CommunityStructure/abstractTypes.jl")
 
-    #Auxiliar
-    # export cellInMesh, new
-    # include("./AgentStructure/auxiliar.jl")
-
-    export @addRule
-    include("./integrators/addFunctions.jl")
-
     #Agent
     #, loopOverAgents, removeAgent!, addAgent!
     include("./AgentStructure/auxiliar.jl")
@@ -71,6 +64,13 @@ module CellBasedModels
     # include("./AgentStructure/functionRule.jl")
     #     #DE
     # include("./AgentStructure/functionDE.jl")
+
+    export @addRule, @addODE, @addSDE
+    include("./integrators/addFunctions.jl")
+    export RuleProblem, Rule
+    include("./integrators/ruleProblem.jl")
+    export CBProblem, CBIntegrator, init
+    include("./integrators/cellBasedProblem.jl")
 
     #Neighbors
     # NEIGHBORS_ALGS = (:NeighborsFull, :NeighborsCellLinked)

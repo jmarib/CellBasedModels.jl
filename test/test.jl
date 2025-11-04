@@ -14,35 +14,44 @@ mesh = UnstructuredMesh(
     propertiesAgent  = props,
 )
 
-@addRule mesh function f!(du, u, p)
-    du.a.x[i] += 1
-    x = du.a
-    x = 0
-    y = u.a
-    for i in 1:10
-        y.y.j[i] += i
-        y = 0
+@addRule(model=mesh, scope=mechanics,
+function f!(du, u, p, t)
+    for i in 1:length(du.a)
+        du.a.a[i] = 0
     end
 end
+)
 
-function f(x::Vector{Float64})
-    return x .^ 2
+@addODE(model=mesh, scope=biochemistry,
+function g!(du, u, p, t)
+    a = du.a
+    n = du.n
+    for i in 1:length(a)
+        a.a[i] += 1
+        n.x[i] += 1
+    end
 end
+)
 
-function f(x::Matrix{Float64})
-    return x .^ 2
-end
+println(mesh)
 
-function g(x)
-    f(x)
-    return
-end
+meshObject = UnstructuredMeshObject(
+        mesh,
+        agentN=10,
+        nodeN=5,
+    )
 
-function g2(x::Vector{Float64})
-    f(x)
-    return
-end
+problem = CBProblem(
+    mesh,
+    meshObject,
+    (0.0, 1.0),
+)
+integrator = init(
+    problem,
+    dt=0.1
+)
 
-A = Any[rand(1)]  # store as Any to hide type
-@btime for i in 1:10000 g((A[1])) end   # dynamic dispatch!
-@btime for i in 1:10000 g2((A[1])) end  # still specialized
+# for i in 1:10
+#     step!(integrator)
+#     # println(integrator.u.n.x)
+# end
