@@ -97,15 +97,13 @@ function Base.show(io::IO, x::UnstructuredMesh{D, S}) where {D, S}
         end
     end
     println(io, "Functions")
-    for ((type, scope), funcs) in x._functions
-        println(io, "\t", scope, "(", type, "):")
+    for (scope, (type, funcs)) in pairs(x._functions)
+        print(io, "\t", scope, " (", type, "):")
         for (i,f) in enumerate(funcs)
-            print(io, "\t\t Subfunctions ", i, ":")
-            for func in f
-                print(io, " ", func)
-            end
-            println(io)
+            # print(io, "\t\t Subfunctions ", i, ":")
+            print(io, " ", f)
         end
+        println(io)
     end
 end
 

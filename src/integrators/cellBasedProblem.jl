@@ -22,7 +22,6 @@ function CBProblem(mesh::CellBasedModels.AbstractMesh, meshObject0::CellBasedMod
         args = modifiedInScope(mesh, scope)
         type, fs = mesh._functions[scope]
 
-        println(args)
         if type == :RULE
             DEProblemsDict[scope] = RuleProblem(fs[1], partialCopy(u, args), tspan, p)
         elseif type == :ODE
@@ -62,7 +61,7 @@ function DifferentialEquations.init(problem::CBProblem; dt::Real)
         if typeof(deproblem) == RuleProblem
             integratorsDict[scope] = DifferentialEquations.init(deproblem; dt=dt)
         else
-            integratorsDict[scope] = DifferentialEquations.init(deproblem, DifferentialEquations.Euler(); dt=dt)
+            integratorsDict[scope] = DifferentialEquations.init(deproblem, DifferentialEquations.Euler(), dt=dt)
         end
     end
 
@@ -85,10 +84,6 @@ function DifferentialEquations.step!(integrator::CBIntegrator)
     end
 
     for (scope, deintegrator) in integrator.integratorsDict
-        if scope == :biochemistry
-            println(deintegrator)
-            println(deintegrator.u.n.x)
-        end
         copyto!(integrator.u, deintegrator.u)
     end
 

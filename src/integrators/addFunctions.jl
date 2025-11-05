@@ -10,7 +10,7 @@ Returns a NamedTuple with fields:
 - `assigns`     :: Vector{String}  — list of tracked assignments
 - `violations`  :: Vector{String}  — assignments that modify protected symbols
 """
-function lhs_chain_with_index(lhs)
+function chain_with_index(lhs)
     indexed = false
     function go(x)
         if x isa Expr
@@ -33,9 +33,6 @@ function lhs_chain_with_index(lhs)
     return go(lhs), indexed
 end
 
-# Keep for callers that still want just the chain (your other helpers may use it)
-lhs_chain(lhs) = lhs_chain_with_index(lhs)[1]
-
 function analyze_rule_code(kwargs, fdefs; type)
     assigns = Tuple[]
 
@@ -55,25 +52,78 @@ function analyze_rule_code(kwargs, fdefs; type)
         @capture(fdef, function fname_(args__); body__ end) ||
             error("Expected a function definition expression")
 
-        aliases = Dict{Symbol, Vector{Symbol}}()
+        aliases = Dict{Symbol, Union{Vector{Symbol}, Symbol}}()
 
         postwalk(fdef) do ex
             # Maintain alias map: x = du.a.a  (adds),  x = something_else (removes)
             if ex isa Expr && ex.head == :(=)
+
                 lhs, rhs = ex.args
-                if lhs isa Symbol && rhs isa Expr && rhs.head == :.
-                    chain = lhs_chain(rhs)
-                    if first(chain) in tracked_syms
-                        aliases[lhs] = chain
+                if lhs isa Symbol# && rhs isa Symbol
+                    # println("Cases 0: ", ex)
+                    chain, index = chain_with_index(rhs)
+                    # println(chain, index)
+
+                    if first(chain) in keys(aliases)
+                        chain = vcat(aliases[first(chain)], chain[2:end])
                     end
-                elseif lhs isa Symbol
-                    delete!(aliases, lhs)
+                    rhs_root = first(chain)
+                    tail = chain[2:end]
+
+                    if lhs in protected_syms
+                        error("Assignment to protected symbol $(join(chain, '.')) is forbidden.")
+                    elseif lhs in tracked_syms
+                        # println("Cases 0.0: ", ex)
+                        error("Direct assignment to tracked symbol '$lhs = ...' is forbidden. You will be overriding a parameter of the function.")
+                    elseif lhs in keys(aliases)
+                        if rhs_root in tracked_syms
+                            # println("Cases 0.1: ", ex)
+                            aliases[lhs] = chain
+                        else
+                            # println("Cases 0.2: ", ex)
+                            delete!(aliases, lhs)
+                        end
+                    else
+                        if rhs_root in tracked_syms
+                            # println("Cases 0.3: ", ex)
+                            aliases[lhs] = chain
+                        # else
+                        #     println("Cases 0.4: ", ex)
+                        end
+                    end
+                elseif lhs isa Expr
+                    # println("Cases 0: ", ex)
+                    chain_lhs, index_lhs = chain_with_index(lhs)
+                    if first(chain_lhs) in keys(aliases)
+                        chain_lhs = vcat(aliases[first(chain_lhs)], chain_lhs[2:end])
+                    end
+                    lhs_root = first(chain_lhs)
+                    tail = chain_lhs[2:end]
+
+                    chain, index = chain_with_index(rhs)
+                    if first(chain) in keys(aliases)
+                        chain = vcat(aliases[first(chain)], chain[2:end])
+                    end
+                    rhs_root = first(chain)
+
+                    if lhs_root in protected_syms
+                        error("Assignment to protected symbol $(join(chain, '.')) is forbidden.")
+                    elseif lhs_root in tracked_syms && !index_lhs
+                        # println("Cases 0.5: ", ex)
+                        error("Assignment to vector-like field without indexing: $(join(chain_lhs, '.')). Use indexing (e.g. $(du_sym).scope.param[i] = ...).")
+                    elseif lhs_root in tracked_syms && index_lhs
+                        push!(assigns, tuple(tail...))
+                    # else
+                    #     println("Cases 0.6: ", ex)
+                    end
                 end
+
+                # println("Aliases after assignment: ", aliases)
 
             # Handle *all* assignment-like expressions (incl. broadcast)
             elseif ex isa Expr && (ex.head in (normal_heads..., broadcast_heads...))
                 lhs = ex.args[1]
-                chain, indexed = lhs_chain_with_index(lhs)
+                chain, indexed = chain_with_index(lhs)
 
                 # Resolve simple alias for the root
                 if first(chain) in keys(aliases)
@@ -83,30 +133,25 @@ function analyze_rule_code(kwargs, fdefs; type)
                 root = first(chain)
                 tail = chain[2:end]
 
-                # 1) Any write to protected root (u) is forbidden
                 if root in protected_syms
                     error("Assignment to protected symbol $(join(chain, '.')) is forbidden.")
 
-                # 2) Broadcast writes on tracked state are forbidden
-                elseif root == du_sym && (ex.head in broadcast_heads)
-                    error("Broadcast assignment on tracked state is forbidden: $(join(chain, '.')) $(ex.head). Use explicit indexed updates (e.g. $(du_sym).scope.param[i] = ...).")
+                elseif root in tracked_syms && (ex.head in broadcast_heads) && !(kwargs.broadcasting)
+                    error("Broadcast assignment to tracked symbol $(join(chain, '.')) is forbidden without `broadcasting=true`.")
 
-                # 3) Plain writes without indexing to vector-like fields are forbidden
-                #    We consider du.* fields vector-like and require indexing.
-                elseif root == du_sym
-                    # direct write to `du` itself is also invalid
-                    if length(chain) == 1
-                        error("Direct assignment to $(du_sym) is forbidden; modify its fields via indexing.")
-                    end
-                    if !indexed
-                        error("Assignment to vector-like field without indexing: $(join(chain, '.')). Use indexing (e.g. $(du_sym).scope.param[i] = ...).")
-                    end
-
-                    # Valid tracked indexed write -> record (tail...) as before
-                    if length(tail) < 2
-                        error("Tracked assignment too short: $(join(chain,'.')). Expected $(du_sym).SCOPE.PARAM[...]")
-                    end
+                elseif root in tracked_syms && (ex.head in broadcast_heads)
                     push!(assigns, tuple(tail...))
+
+                elseif root in tracked_syms && (ex.head in normal_heads) && kwargs.broadcasting && !indexed
+                    error("Assignment to tracked symbol $(join(chain, '.')) when `broadcasting=true` without a broadcasting operator is disallowed.")
+                    
+                elseif (ex.head in normal_heads) && kwargs.broadcasting && indexed
+                    error("Non-broadcast assignment to tracked symbol $(join(chain, '.')) is forbidden when `broadcasting=true`. Use broadcast assignment (e.g. `.=`). This is disallowed as in some platforms indexing is disallowed.")
+
+                elseif root in tracked_syms && (ex.head in normal_heads) && !(kwargs.broadcasting) && indexed
+
+                    push!(assigns, tuple(tail...))
+
                 end
             end
             ex
@@ -114,7 +159,6 @@ function analyze_rule_code(kwargs, fdefs; type)
     end
 
     unique_assigns = unique(assigns)
-    println("Detected tracked (indexed) assignments: ", unique_assigns)
 
     # build emitted code (unchanged structure)
     fs = [f.fname for f in fdefs]
@@ -137,24 +181,6 @@ function analyze_rule_code(kwargs, fdefs; type)
     end
 end
 
-# function lhs_chain(lhs)
-#     if lhs isa Expr
-#         if lhs.head == :ref
-#             return lhs_chain(lhs.args[1])
-#         elseif lhs.head == :.
-#             return vcat(lhs_chain(lhs.args[1]), lhs_chain(lhs.args[2]))
-#         else
-#             return [lhs]
-#         end
-#     elseif lhs isa QuoteNode
-#         return [lhs.value]
-#     elseif lhs isa Symbol
-#         return [lhs]
-#     else
-#         return [lhs]
-#     end
-# end
-
 function extract_parameters(n, ex)
 
     functions = []
@@ -172,15 +198,15 @@ function extract_parameters(n, ex)
 
     mesh_name = nothing
     scope_name = nothing
-    overwrite = false
+    broadcasting = false
     for arg in ex[1:end - n]
         @capture(arg, kwarg_=value_)
         if kwarg == :model
            mesh_name = value
         elseif kwarg == :scope
            scope_name = value
-        elseif kwarg == :overwrite
-            overwrite = value
+        elseif kwarg == :broadcasting
+            broadcasting = value
         else
             error("Unknown keyword argument '$kwarg'")
         end
@@ -190,11 +216,11 @@ function extract_parameters(n, ex)
         error("Expected 'model' keyword argument.")
     elseif scope_name === nothing
         error("Expected 'scope' keyword argument.")
-    elseif !(overwrite isa Bool)
-        error("'overwrite' keyword argument must be a Bool.")
+    elseif !(broadcasting isa Bool)
+        error("'broadcasting' keyword argument must be a Bool.")
     end
 
-    return (mesh_name=mesh_name, scope_name=scope_name, overwrite=overwrite), functions
+    return (mesh_name=mesh_name, scope_name=scope_name, broadcasting=broadcasting), functions
 
 end
 

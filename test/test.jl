@@ -14,31 +14,38 @@ mesh = UnstructuredMesh(
     propertiesAgent  = props,
 )
 
-@addRule(model=mesh, scope=mechanics,
-function f!(du, u, p, t)
-    for i in 1:length(du.a)
-        du.a.a[i] = 0
-    end
-end
-)
+# @addRule(model=mesh, scope=mechanics,
+# function f!(du, u, p, t)
 
-@addODE(model=mesh, scope=biochemistry,
+#     for i in 1:length(u.a)
+#         du.a.a[i] = rand()
+#         du.a.b[i] += 1
+#     end
+
+# end
+# )
+
+@addODE(model=mesh, scope=biochemistry, broadcasting=true,
 function g!(du, u, p, t)
-    a = du.a
-    n = du.n
-    for i in 1:length(a)
-        a.a[i] += 1
-        n.x[i] += 1
-    end
+
+    du.n.x .= 1
+
 end
 )
 
 println(mesh)
 
+N = 10000
+function evolve!(integrator, steps)
+    for i in 1:steps
+        step!(integrator)
+    end
+end
+
 meshObject = UnstructuredMeshObject(
         mesh,
-        agentN=10,
-        nodeN=5,
+        # agentN=10,
+        nodeN=N,
     )
 
 problem = CBProblem(
@@ -51,7 +58,19 @@ integrator = init(
     dt=0.1
 )
 
-# for i in 1:10
-#     step!(integrator)
-#     # println(integrator.u.n.x)
-# end
+@btime evolve!(integrator, 10)
+
+f!(du,u,p,t) = begin
+    du .= 1
+end
+
+x = zeros(N)
+
+problem = ODEProblem(f!, x, (0.0, 1.0))
+integrator = init(
+    problem,
+    Euler(),
+    dt=0.1
+)
+
+@btime evolve!(integrator, 10)
