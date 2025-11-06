@@ -1,6 +1,6 @@
 import DifferentialEquations
 
-struct RuleProblem
+struct RuleProblem <: DifferentialEquations.DEProblem
 
     f
     u0

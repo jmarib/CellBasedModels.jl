@@ -1,14 +1,14 @@
-import DifferentialEquations: ODEProblem, SDEProblem
+import DifferentialEquations: ODEProblem, SDEProblem, DEProblem
 import DifferentialEquations
 
-struct CBProblem
+struct CBProblem{P}
 
-    mesh
-    u0
-    tspan
-    p
-    u
-    _DEProblems
+    mesh::AbstractMesh
+    u0::AbstractMeshObject
+    tspan::Tuple{Real,Real}
+    p::P
+    u::AbstractMeshObject
+    _DEProblems::Dict{Symbol, DEProblem}
 
 end
 
@@ -17,7 +17,7 @@ function CBProblem(mesh::CellBasedModels.AbstractMesh, meshObject0::CellBasedMod
     u0 = meshObject0
     u = deepcopy(u0)
 
-    DEProblemsDict = Dict{Symbol, Any}()
+    DEProblemsDict = Dict{Symbol, DEProblem}()
     for scope in keys(mesh._functions)
         args = modifiedInScope(mesh, scope)
         type, fs = mesh._functions[scope]
@@ -31,59 +31,85 @@ function CBProblem(mesh::CellBasedModels.AbstractMesh, meshObject0::CellBasedMod
         else
             error("Unknown function type: $type")
         end
+
     end
 
-    return CBProblem(mesh, u0, tspan, p, u, DEProblemsDict)
+    P = typeof(p)
+
+    return CBProblem{P}(mesh, u0, tspan, p, u, DEProblemsDict)
 
 end
 
-mutable struct CBIntegrator
+struct CBIntegrator{M, I}
 
-    u
-    integratorsDict::Dict{Symbol, Any}
+    u::M
+    integrators::I
     
 end
 
-function DifferentialEquations.init(problem::CBProblem; dt::Real)
+function DifferentialEquations.init(problem::CBProblem; dt::Real, kwargs...)
 
-    # kwargs_ = deepcopy(kwargs)
+    kwargs_ = deepcopy(kwargs)
 
-    # for (k, v) in pairs(kwargs_)
+    for (k, v) in pairs(kwargs_)
         
-    #     if !(k in keys(problem._DEProblems))
-    #        error("Unknown scope $k for CBProblem. Available scopes: $(keys(problem._DEProblems))")
-    #     end
+        if !(k in keys(problem._DEProblems))
+           error("Unknown scope $k for CBProblem. Available scopes: $(keys(problem._DEProblems))")
+        end
 
-    # end
+    end
 
     integratorsDict = Dict{Symbol, Any}()
     for (scope, deproblem) in problem._DEProblems
+
+        integrator = nothing
+        args = Dict{Symbol, Any}()
+        if scope in keys(kwargs_)
+            v = kwargs_[scope]
+            if !(v isa Tuple)
+                integrator = v
+            else
+                integrator, args = v
+                args = Dict(args)
+            end
+        end
+
+        #Override arguments
+        args[:save_everystep] = false
+        args[:dt] = dt
+
         if typeof(deproblem) == RuleProblem
             integratorsDict[scope] = DifferentialEquations.init(deproblem; dt=dt)
         else
-            integratorsDict[scope] = DifferentialEquations.init(deproblem, DifferentialEquations.Euler(), dt=dt)
+            if integrator === nothing
+                integratorsDict[scope] = DifferentialEquations.init(deproblem; (;args...)...)
+            else
+                integratorsDict[scope] = DifferentialEquations.init(deproblem, integrator; (;args...)...)
+            end
         end
     end
 
-    return CBIntegrator(problem.u, integratorsDict)
+    integrators = (;integratorsDict...)
+
+    return CBIntegrator{typeof(problem.u), typeof(integrators)}(problem.u, integrators)
 
 end
 
 function DifferentialEquations.step!(integrator::CBIntegrator)
 
-    for (scope, deintegrator) in integrator.integratorsDict
+    for (scope, deintegrator) in pairs(integrator.integrators)
         if typeof(deintegrator) != Rule
             DifferentialEquations.step!(deintegrator)
         end
     end
 
-    for (scope, deintegrator) in integrator.integratorsDict
+    for (scope, deintegrator) in pairs(integrator.integrators)
         if typeof(deintegrator) == Rule
             DifferentialEquations.step!(deintegrator)
         end
     end
 
-    for (scope, deintegrator) in integrator.integratorsDict
+    for (scope, deintegrator) in pairs(integrator.integrators)
         copyto!(integrator.u, deintegrator.u)
     end
 

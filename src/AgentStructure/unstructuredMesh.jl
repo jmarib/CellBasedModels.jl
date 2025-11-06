@@ -201,7 +201,7 @@ end
 # UnstructuredMeshObjectField
 ######################################################################################################
 struct UnstructuredMeshObjectField{
-            P, 
+            P, DT,
             PR, PRN, PRC,
             IDVI, IDAI,    
             AI, VB, SI, VVNT, AB            
@@ -262,6 +262,15 @@ function UnstructuredMeshObjectField(
     _pReference = SizedVector{length(_p), Bool}([true for _ in 1:length(meshProperties)])
 
     P = platform(_N)
+    DT = Nothing
+    for i in values(meshProperties)
+        d = dtype(i, isbits=true)
+        if d <: AbstractFloat
+            DT = Float64
+            break
+        end
+    end
+
     IDVI = typeof(_id)
     IDAI = typeof(_idMax)
 
@@ -276,7 +285,7 @@ function UnstructuredMeshObjectField(
     PRC = typeof(_pReference)
 
     UnstructuredMeshObjectField{
-            P, 
+            P, DT,
             PR, PRN, PRC, 
             IDVI, IDAI,    
             AI, VB, SI, VVNT, AB
@@ -320,6 +329,14 @@ function UnstructuredMeshObjectField(
     )
 
     P = platform(_N)
+    DT = Nothing
+    for i in values(_p)
+        d = eltype(i)
+        if d <: AbstractFloat
+            DT = Float64
+            break
+        end
+    end
 
     PR = typeof(_p)
     PRN = _NP
@@ -335,7 +352,7 @@ function UnstructuredMeshObjectField(
     VVNT = typeof(_AddedAgents)
 
     UnstructuredMeshObjectField{
-            P, 
+            P, DT,
             PR, PRN, PRC,
             IDVI, IDAI,    
             AI, VB, SI, VVNT, AB,
@@ -360,12 +377,12 @@ function UnstructuredMeshObjectField(
 end
 
 function Base.show(io::IO, x::UnstructuredMeshObjectField{
-            P, 
+            P, DT,
             PR, PRN, PRC, 
             IDVI, IDAI,    
             AI, VB, SI, VVNT, AB,
         }) where {
-            P, 
+            P, DT,
             PR, PRN, PRC,
             IDVI, IDAI,    
             AI, VB, SI, VVNT, AB, 
@@ -403,12 +420,12 @@ function Base.show(io::IO, x::Type{UnstructuredMeshObjectField})
 end
 
 function show(io::IO, ::Type{UnstructuredMeshObjectField{
-            P, 
+            P, DT,
             PR, PRN, PRC,
             IDVI, IDAI,
             AI, VB, SI, VVNT, AB,
         }}) where {
-            P, 
+            P, DT,
             PR, PRN, PRC,
             IDVI, IDAI,
             AI, VB, SI, VVNT, AB,
@@ -430,12 +447,12 @@ function show(io::IO, ::Type{UnstructuredMeshObjectField{
 end
 
 @generated function Base.getproperty(field::UnstructuredMeshObjectField{
-            P, 
+            P, DT,
             PR, PRN, PRC,
             IDVI, IDAI,
             AI, VB, SI, VVNT, AB,            
         }, s::Symbol) where {
-            P, 
+            P, DT,
             PR, PRN, PRC,
             IDVI, IDAI,
             AI, VB, SI, VVNT, AB,
@@ -459,6 +476,9 @@ end
 
 Base.length(field::UnstructuredMeshObjectField{P}) where {P<:CPU} = field._N[]
 Base.size(field::UnstructuredMeshObjectField) = (field._NP, length(field))
+
+Base.eltype(::UnstructuredMeshObjectField{P, DT}) where {P, DT} = DT
+Base.eltype(::Type{<:UnstructuredMeshObjectField{P, DT}}) where {P, DT} = DT
 
 Base.getindex(field::UnstructuredMeshObjectField, i::Int) = field._p[i]
 Base.getindex(field::UnstructuredMeshObjectField, s::Symbol) = getproperty(field, s)
@@ -543,8 +563,8 @@ end
 
 ## Copyto!
 @eval @inline function Base.copyto!(
-    dest::UnstructuredMeshObjectField{P, PR, PRN, PRC},
-    bc::UnstructuredMeshObjectField{P, PR, PRN, PRC}) where {P, PR, PRN, PRC}
+    dest::UnstructuredMeshObjectField{P, DT, PR, PRN, PRC},
+    bc::UnstructuredMeshObjectField{P, DT, PR, PRN, PRC}) where {P, DT, PR, PRN, PRC}
     N = length(dest)
     @inbounds for i in 1:PRN
         if !bc._pReference[i]
@@ -582,8 +602,8 @@ for type in [
     ]
 
     @eval @inline function Base.copyto!(
-            dest::UnstructuredMeshObjectField{P, PR, PRN, PRC},
-            bc::$type) where {P, PR, PRN, PRC}
+            dest::UnstructuredMeshObjectField{P, DT, PR, PRN, PRC},
+            bc::$type) where {P, DT, PR, PRN, PRC}
         bc = Broadcast.flatten(bc)
         N = length(dest)
         @inbounds for i in 1:PRN
@@ -609,7 +629,7 @@ end
 # UnstructuredMeshObject
 ######################################################################################################
 struct UnstructuredMeshObject{
-            P, D, S,
+            P, D, S, DT,
             A, N, E, F, V
     } <: AbstractMeshObject
     a::A
@@ -639,6 +659,16 @@ function UnstructuredMeshObject(
 
     fields = []
     P = platform()
+    DT = Nothing
+    for i in (mesh.a, mesh.n, mesh.e, mesh.f, mesh.v)
+        if i !== nothing
+            d = eltype(i)
+            if d <: AbstractFloat
+                DT = Float64
+                break
+            end
+        end
+    end
 
     for (N,NC,p,name) in zip(
         (agentN, nodeN, edgeN, faceN, volumeN),
@@ -659,7 +689,7 @@ function UnstructuredMeshObject(
     end
 
     return UnstructuredMeshObject{
-            P, D, S,
+            P, D, S, DT,
             (typeof(i) for i in fields)...
         }(
             fields...
@@ -673,15 +703,20 @@ function UnstructuredMeshObject(
     D = length(filter(k -> k in (:x, :y, :z), keys(n._p)))
     P = platform()
     S = Nothing
+    DT = Nothing
     for i in (a, n, e, f, v)
         if i !== nothing
             P = platform(i._N)
-            break
+            d = eltype(i)
+            if d <: AbstractFloat
+                DT = d
+                break
+            end
         end
     end
 
     return UnstructuredMeshObject{
-            P, D, S,
+            P, D, S, DT,
             typeof(a), typeof(n), typeof(e), typeof(f), typeof(v)
         }(
             a, n, e, f, v
@@ -730,7 +765,7 @@ function Base.show(io::IO, x::Type{UnstructuredMeshObject{P, D, S}}) where {P, D
     println(io, "}")
 end
 
-function show(io::IO, ::Type{UnstructuredMeshObject{P, D, S, A, N, E, F, V,}}) where {P, D, S, A, N, E, F, V}
+function show(io::IO, ::Type{UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V,}}) where {P, D, S, DT, A, N, E, F, V}
     for (props, propsnames) in zip((A, N, E, F, V), ("a", "PropertiesNode", "PropertiesEdge", "PropertiesFace", "PropertiesVolume"))
         if props !== Nothing
             print(io, "\t", string(propsnames), "Meta", "=(")
@@ -740,7 +775,7 @@ function show(io::IO, ::Type{UnstructuredMeshObject{P, D, S, A, N, E, F, V,}}) w
     end
 end
 
-function Base.length(::UnstructuredMeshObject{P, D, S, A, N, E, F, V}) where {P, D, S, A, N, E, F, V}
+function Base.length(::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}) where {P, D, S, DT, A, N, E, F, V}
     c = 0
     A !== nothing ? c += 1 : nothing
     N !== nothing ? c += 1 : nothing
@@ -752,12 +787,11 @@ end
 
 Base.size(mesh::UnstructuredMeshObject) = (length(mesh),)
 
+Base.eltype(::UnstructuredMeshObject{P, D, S, DT}) where {P, D, S, DT} = DT
+Base.eltype(::Type{<:UnstructuredMeshObject{P, D, S, DT}}) where {P, D, S, DT} = DT
+
 Base.ndims(::UnstructuredMeshObject) = 1
 Base.ndims(::Type{<:UnstructuredMeshObject}) = 1
-
-function Base.eltype(::Type{<:UnstructuredMeshObject})
-    return CellBasedModels.concreteDataType(AbstractFloat)
-end
 
 function Base.iterate(mesh::UnstructuredMeshObject, state = 1)
     state >= length(mesh) ? nothing : (state, state + 1)
@@ -816,12 +850,27 @@ end
 @eval @inline function Base.copyto!(
     dest::UnstructuredMeshObject,
     bc::UnstructuredMeshObject)
-    @inbounds for i in (:a, :n, :e, :f, :v)
-        if dest[i] !== nothing && bc[i] !== nothing
-            copyto!(dest[i], bc[i])
-        end
+
+    if getfield(dest, :a) !== nothing && getfield(bc, :a) !== nothing
+        copyto!(getfield(dest, :a), getfield(bc, :a))
     end
-    dest
+
+    if getfield(dest, :n) !== nothing && getfield(bc, :n) !== nothing
+        copyto!(getfield(dest, :n), getfield(bc, :n))
+    end
+
+    if getfield(dest, :e) !== nothing && getfield(bc, :e) !== nothing
+        copyto!(getfield(dest, :e), getfield(bc, :e))
+    end
+
+    if getfield(dest, :f) !== nothing && getfield(bc, :f) !== nothing
+        copyto!(getfield(dest, :f), getfield(bc, :f))
+    end
+
+    if getfield(dest, :v) !== nothing && getfield(bc, :v) !== nothing
+        copyto!(getfield(dest, :v), getfield(bc, :v))
+    end
+
 end
 
 ## Broadcasting
@@ -855,19 +904,62 @@ for type in [
             dest::UnstructuredMeshObject{P, A, N, E, F, V},
             bc::$type) where {P, A, N, E, F, V}
         bc = Broadcast.flatten(bc)
-        @inbounds for i in 1:length(dest)
-            d = dest[i]
-            if d !== nothing
-                np, n = size(d)
-                for j in 1:np
-                    if !d._pReference[j]
-                        dest_ = @views dest[i]._p[j][1:n]
-                        copyto!(dest_, unpack_voa(bc, i, j, n))
-                    end
+
+        d = getfield(dest, :a)
+        if d !== nothing
+            np, n = size(d)
+            for j in 1:np
+                if !d._pReference[j]
+                    dest_ = @views d._p[j][1:n]
+                    copyto!(dest_, unpack_voa(bc, :a, j, n))
                 end
             end
         end
-        dest
+
+        d = getfield(dest, :n)
+        if d !== nothing
+            np, n = size(d)
+            for j in 1:np
+                if !d._pReference[j]
+                    dest_ = @views d._p[j][1:n]
+                    copyto!(dest_, unpack_voa(bc, :n, j, n))
+                end
+            end
+        end
+
+        d = getfield(dest, :e)
+        if d !== nothing
+            np, n = size(d)
+            for j in 1:np
+                if !d._pReference[j]
+                    dest_ = @views d._p[j][1:n]
+                    copyto!(dest_, unpack_voa(bc, :e, j, n))
+                end
+            end
+        end
+
+        d = getfield(dest, :f)
+        if d !== nothing
+            np, n = size(d)
+            for j in 1:np
+                if !d._pReference[j]
+                    dest_ = @views d._p[j][1:n]
+                    copyto!(dest_, unpack_voa(bc, :f, j, n))
+                end
+            end
+        end
+
+        d = getfield(dest, :v)
+        if d !== nothing
+            np, n = size(d)
+            for j in 1:np
+                if !d._pReference[j]
+                    dest_ = @views d._p[j][1:n]
+                    copyto!(dest_, unpack_voa(bc, :v, j, n))
+                end
+            end
+        end
+
     end
 end
 

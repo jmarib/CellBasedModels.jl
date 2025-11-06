@@ -32,7 +32,7 @@ mesh = UnstructuredMesh(
 @addODE(model=mesh, scope=biochemistry, broadcasting=true,
 function g!(du, u, p, t)
 
-    du.n.x .= 1
+    @inbounds du.n.x .= 1
 
 end
 )
@@ -40,8 +40,6 @@ end
 # println(mesh)
 
 N = 100000
-T = 100
-
 function evolve!(integrator, steps)
     for i in 1:steps
         step!(integrator)
@@ -65,40 +63,35 @@ integrator = init(
     biochemistry=Euler()
 )
 
-x = integrator.integrators.biochemistry
-@btime evolve!(x, T)
+# @code_warntype step!(integrator)
 
 # Profile.clear()
-# @profile evolve!(integrator, T)
-# # pprof(; webport=8080, webhost="localhost")
-# Profile.print(format=:flat, noisefloor=2, sortedby=:count)
+# Profile.@profile sample_rate=0.001 step!(integrator.integrators[:biochemistry])
+# Profile.print()
 
-f!(du,u,p,t) = begin
-    du .= 1
-end
+# Allocs.clear()
+# Allocs.@profile sample_rate=0.001 step!(integrator.integrators[:biochemistry])
+# Allocs.print()
+# PProf.Allocs.pprof(webport=8080)
+# sleep(300)
 
-x = zeros(N)
+@btime step!(integrator)
+@btime step!(integrator.integrators[:biochemistry])
 
-problem = ODEProblem(f!, x, (0.0, 1.0))
-integrator2 = init(
-    problem,
-    Euler(),
-    dt=0.1,
-    save_everystep=false,
-)
+# @btime evolve!(integrator, 100)
 
-@btime evolve!(integrator2, T)
-
-# Profile.clear()
-# @profile evolve!(integrator2, T)
-# # pprof(; webport=8080, webhost="localhost")
-# Profile.print(format=:flat, noisefloor=2, sortedby=:count)
-
-# function f!(integrator)
-#     DifferentialEquations.DiffEqBase.@.. integrator.integrators.biochemistry.u = integrator.integrators.biochemistry.u + 2.0
+# f!(du,u,p,t) = begin
+#     du .= 1
 # end
-# @btime f!(integrator)
-# function f2!(integrator)
-#     DifferentialEquations.DiffEqBase.@.. integrator2.u = integrator2.u + 2.0
-# end
-# @btime f2!(integrator2)
+
+# x = zeros(N)
+
+# problem = ODEProblem(f!, x, (0.0, 1.0))
+# integrator2 = init(
+#     problem,
+#     Euler(),
+#     dt=0.1,
+#     save_everystep=false,
+# )
+
+# @btime evolve!(integrator2, 100)
