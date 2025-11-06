@@ -65,8 +65,7 @@ integrator = init(
     biochemistry=Euler()
 )
 
-x = integrator.integrators.biochemistry
-@btime evolve!(x, T)
+@btime evolve!(integrator, T)
 
 # Profile.clear()
 # @profile evolve!(integrator, T)

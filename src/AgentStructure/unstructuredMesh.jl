@@ -568,7 +568,7 @@ end
     N = length(dest)
     @inbounds for i in 1:PRN
         if !bc._pReference[i]
-            @views dest._p[i][1:N] .= bc._p[i][1:N]
+            copyto!(dest._p[i], 1, bc._p[i], 1, N)
         end
     end
     dest
@@ -608,8 +608,7 @@ for type in [
         N = length(dest)
         @inbounds for i in 1:PRN
             if !dest._pReference[i]
-                dest_ = @views dest._p[i][1:N]
-                copyto!(dest_, unpack_voa(bc, i))
+                copyto!(dest._p[j], unpack_voa(bc, i), 1, N)
             end
         end
         dest
@@ -622,7 +621,7 @@ end
 end
 
 function unpack_voa(x::UnstructuredMeshObjectField, i)
-    @views x._p[i][1:length(x)]
+    x._p[i]
 end
 
 ######################################################################################################
@@ -910,8 +909,8 @@ for type in [
             np, n = size(d)
             for j in 1:np
                 if !d._pReference[j]
-                    dest_ = @views d._p[j][1:n]
-                    copyto!(dest_, unpack_voa(bc, :a, j, n))
+                    # dest_ = @views d._p[j][1:n]
+                    copyto!(d._p[j], 1, unpack_voa(bc, :a, j, n), 1, n)
                 end
             end
         end
@@ -921,8 +920,8 @@ for type in [
             np, n = size(d)
             for j in 1:np
                 if !d._pReference[j]
-                    dest_ = @views d._p[j][1:n]
-                    copyto!(dest_, unpack_voa(bc, :n, j, n))
+                    # dest_ = @views d._p[j][1:n]
+                    copyto!(d._p[j], 1, unpack_voa(bc, :n, j, n), 1, n)
                 end
             end
         end
@@ -932,8 +931,8 @@ for type in [
             np, n = size(d)
             for j in 1:np
                 if !d._pReference[j]
-                    dest_ = @views d._p[j][1:n]
-                    copyto!(dest_, unpack_voa(bc, :e, j, n))
+                    # dest_ = @views d._p[j][1:n]
+                    copyto!(d._p[j], 1, unpack_voa(bc, :e, j, n), 1, n)
                 end
             end
         end
@@ -943,8 +942,8 @@ for type in [
             np, n = size(d)
             for j in 1:np
                 if !d._pReference[j]
-                    dest_ = @views d._p[j][1:n]
-                    copyto!(dest_, unpack_voa(bc, :f, j, n))
+                    # dest_ = @views d._p[j][1:n]
+                    copyto!(d._p[j], 1, unpack_voa(bc, :f, j, n), 1, n)
                 end
             end
         end
@@ -954,8 +953,8 @@ for type in [
             np, n = size(d)
             for j in 1:np
                 if !d._pReference[j]
-                    dest_ = @views d._p[j][1:n]
-                    copyto!(dest_, unpack_voa(bc, :v, j, n))
+                    # dest_ = @views d._p[j][1:n]
+                    copyto!(d._p[j], 1, unpack_voa(bc, :v, j, n), 1, n)
                 end
             end
         end
@@ -968,5 +967,6 @@ end
     Broadcast.Broadcasted(bc.f, unpack_args_voa(i, j, n, bc.args))
 end
 function unpack_voa(x::UnstructuredMeshObject, i, j, n)
-    @views x[i][j][1:n]
+    # @views x[i]._p[j][1:n]
+    x[i]._p[j]
 end
