@@ -11,26 +11,24 @@ Returns a NamedTuple with fields:
 - `violations`  :: Vector{String}  — assignments that modify protected symbols
 """
 function chain_with_index(lhs)
-    indexed = false
     function go(x)
         if x isa Expr
             if x.head == :ref
-                indexed = true
-                return go(x.args[1])
+                return go(lhs.args[1])[1], true
             elseif x.head == :.
-                return vcat(go(x.args[1]), go(x.args[2]))
+                return vcat(go(x.args[1])[1], go(x.args[2])[1]), false
             else
-                return [x]
+                return [x], false
             end
         elseif x isa QuoteNode
-            return [x.value]
+            return [x.value], false
         elseif x isa Symbol
-            return [x]
+            return [x], false
         else
-            return [x]
+            return [x], false
         end
     end
-    return go(lhs), indexed
+    return go(lhs)
 end
 
 function analyze_rule_code(kwargs, fdefs; type)
@@ -107,9 +105,10 @@ function analyze_rule_code(kwargs, fdefs; type)
                     rhs_root = first(chain)
 
                     if lhs_root in protected_syms
-                        error("Assignment to protected symbol $(join(chain, '.')) is forbidden.")
-                    elseif lhs_root in tracked_syms && !index_lhs
-                        # println("Cases 0.5: ", ex)
+                        error("Assignment to protected symbol $(join(chain_lhs, '.')) is forbidden.")
+                    elseif lhs_root in tracked_syms && index_lhs && kwargs.broadcasting
+                        error("Assignment to tracked symbol $(join(chain_lhs, '.')) when `broadcasting=true` without a broadcasting operator is disallowed.")
+                    elseif lhs_root in tracked_syms && !index_lhs && !kwargs.broadcasting
                         error("Assignment to vector-like field without indexing: $(join(chain_lhs, '.')). Use indexing (e.g. $(du_sym).scope.param[i] = ...).")
                     elseif lhs_root in tracked_syms && index_lhs
                         push!(assigns, tuple(tail...))
@@ -145,7 +144,7 @@ function analyze_rule_code(kwargs, fdefs; type)
                 elseif root in tracked_syms && (ex.head in normal_heads) && kwargs.broadcasting && !indexed
                     error("Assignment to tracked symbol $(join(chain, '.')) when `broadcasting=true` without a broadcasting operator is disallowed.")
                     
-                elseif (ex.head in normal_heads) && kwargs.broadcasting && indexed
+                elseif root in tracked_syms && (ex.head in normal_heads) && kwargs.broadcasting && indexed
                     error("Non-broadcast assignment to tracked symbol $(join(chain, '.')) is forbidden when `broadcasting=true`. Use broadcast assignment (e.g. `.=`). This is disallowed as in some platforms indexing is disallowed.")
 
                 elseif root in tracked_syms && (ex.head in normal_heads) && !(kwargs.broadcasting) && indexed
@@ -238,10 +237,10 @@ macro addODE(ex...)
     code = analyze_rule_code(kwargs, functions; type=:ODE)
 
     return esc(code)
-
 end
 
 macro addSDE(ex...)
+
     kwargs, functions = extract_parameters(2, ex)
     code = analyze_rule_code(kwargs, functions; type=:SDE)
 

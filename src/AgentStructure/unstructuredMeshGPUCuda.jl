@@ -1,6 +1,114 @@
-import CellBasedModels: UnstructuredMeshObjectField, UnstructuredMeshObject
+import CellBasedModels: DATATYPE
+import CellBasedModels: UnstructuredMeshObjectField, UnstructuredMeshObjectFieldStyle, UnstructuredMeshObject, UnstructuredMeshObjectStyle, unpack_voa
 import CellBasedModels: toCPU, toGPU, CPU, CPUSinglethread, CPUMultithreading
 
+Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._N[1]
+Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._N[1]
+lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._NCache[1]
+lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._NCache[1]
+
+########################################################################################
+# broadcasting support
+########################################################################################
+for type in [
+        Broadcast.Broadcasted{<:UnstructuredMeshObjectField},
+        Broadcast.Broadcasted{<:UnstructuredMeshObjectFieldStyle},
+    ]
+
+    @eval @inline function Base.copyto!(
+            dest::UnstructuredMeshObjectField{P, DT, PR, PRN, PRC},
+            bc::$type) where {P<:Union{GPUCuda, GPUCuDevice}, DT, PR, PRN, PRC}
+        bc = Broadcast.flatten(bc)
+        N = length(dest)
+        @inbounds for i in 1:PRN
+            if !dest._pReference[i]
+                dest_ = @views dest._p[i][1:N]
+                dest_ .= unpack_voa(bc, i)
+            end
+        end
+        dest
+    end
+end
+
+function unpack_voa(x::UnstructuredMeshObjectField{P}, i) where {P<:Union{GPUCuda, GPUCuDevice}}
+    @views x._p[i][1:length(x)]
+end
+
+for type in [
+        Broadcast.Broadcasted{<:UnstructuredMeshObject},
+        Broadcast.Broadcasted{<:UnstructuredMeshObjectStyle},
+    ]
+
+    @eval @inline function Base.copyto!(
+            dest::UnstructuredMeshObject{P, A, N, E, F, V},
+            bc::$type) where {P<:Union{GPUCuda, GPUCuDevice}, A, N, E, F, V}
+        bc = Broadcast.flatten(bc)
+
+        d = getfield(dest, :a)
+        if d !== nothing
+            np, n = size(d)
+            for j in 1:np
+                if !d._pReference[j]
+                    dest_ = @views d._p[j][1:n]
+                    dest_ .= unpack_voa(bc, :a, j, n)
+                end
+            end
+        end
+
+        d = getfield(dest, :n)
+        if d !== nothing
+            np, n = size(d)
+            for j in 1:np
+                if !d._pReference[j]
+                    dest_ = @views d._p[j][1:n]
+                    dest_ .= unpack_voa(bc, :n, j, n)
+                end
+            end
+        end
+
+        d = getfield(dest, :e)
+        if d !== nothing
+            np, n = size(d)
+            for j in 1:np
+                if !d._pReference[j]
+                    dest_ = @views d._p[j][1:n]
+                    dest_ .= unpack_voa(bc, :e, j, n)
+                end
+            end
+        end
+
+        d = getfield(dest, :f)
+        if d !== nothing
+            np, n = size(d)
+            for j in 1:np
+                if !d._pReference[j]
+                    dest_ = @views d._p[j][1:n]
+                    dest_ .= unpack_voa(bc, :f, j, n)
+                end
+            end
+        end
+
+        d = getfield(dest, :v)
+        if d !== nothing
+            np, n = size(d)
+            for j in 1:np
+                if !d._pReference[j]
+                    dest_ = @views d._p[j][1:n]
+                    dest_ .= unpack_voa(bc, :v, j, n)
+                end
+            end
+        end
+    end
+end
+
+function unpack_voa(x::UnstructuredMeshObject{P}, i, j, n) where {P<:Union{GPUCuda, GPUCuDevice}}
+    @views x[i]._p[j][1:n]
+    # x[i]._p[j]
+end
+
+########################################################################################
+# to CPU / to GPU conversions
+########################################################################################
 toCPU(field::UnstructuredMeshObjectField{P}) where {P<:CPU} = field
 toGPU(field::UnstructuredMeshObjectField{P}) where {P<:GPU} = field
 
@@ -42,17 +150,13 @@ function toGPU(field::UnstructuredMeshObjectField{P}) where {P<:CPU}
     )
 end
 
-Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._N[1]
-Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._N[1]
-lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._NCache[1]
-lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._NCache[1]
-
 toCPU(mesh::UnstructuredMeshObject{D, P}) where {D, P<:CPU} = mesh
 toGPU(mesh::UnstructuredMeshObject{D, P}) where {D, P<:GPUCuda} = mesh
 
-function toCPU(field::UnstructuredMeshObject{P, D, S}) where {P<:GPUCuda, D, S}
+function toCPU(field::UnstructuredMeshObject{P, D, S, DT}) where {P<:GPUCuda, D, S, DT}
 
     PNew = platform()
+    DTNew = DT <: AbstractFloat ? DATATYPE[AbstractFloat] : DT
 
     a = field.a === nothing ? nothing : toCPU(field.a)
     n = field.n === nothing ? nothing : toCPU(field.n)
@@ -66,7 +170,7 @@ function toCPU(field::UnstructuredMeshObject{P, D, S}) where {P<:GPUCuda, D, S}
     F = typeof(f)
     V = typeof(v)
 
-    UnstructuredMeshObject{PNew, D, S, A, N, E, F, V}(
+    UnstructuredMeshObject{PNew, D, S, DTNew, A, N, E, F, V}(
         a,
         n,
         e,
@@ -75,9 +179,10 @@ function toCPU(field::UnstructuredMeshObject{P, D, S}) where {P<:GPUCuda, D, S}
     )
 end
 
-function toGPU(field::UnstructuredMeshObject{P, D, S}) where {P<:CPU, D, S}
+function toGPU(field::UnstructuredMeshObject{P, D, S, DT}) where {P<:CPU, D, S, DT}
 
     PNew = GPUCuda
+    DTNew = DT <: AbstractFloat ? Float32 : DT
 
     a = field.a === nothing ? nothing : toGPU(field.a)
     n = field.n === nothing ? nothing : toGPU(field.n)
@@ -91,7 +196,7 @@ function toGPU(field::UnstructuredMeshObject{P, D, S}) where {P<:CPU, D, S}
     F = typeof(f)
     V = typeof(v)
 
-    UnstructuredMeshObject{PNew, D, S, A, N, E, F, V}(
+    UnstructuredMeshObject{PNew, D, S, DTNew, A, N, E, F, V}(
         a,
         n,
         e,

@@ -53,7 +53,6 @@ import StaticArrays: SizedVector
         @test occursin("UnstructuredMesh with dimensions 2", output)
     end
 
-
     #######################################################################
     # TEST 2: UnstructuredMeshObjectField
     #######################################################################

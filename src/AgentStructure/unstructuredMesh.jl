@@ -608,7 +608,7 @@ for type in [
         N = length(dest)
         @inbounds for i in 1:PRN
             if !dest._pReference[i]
-                copyto!(dest._p[j], unpack_voa(bc, i), 1, N)
+                copyto!(dest._p[i], 1, unpack_voa(bc, i), 1, N)
             end
         end
         dest
@@ -661,10 +661,12 @@ function UnstructuredMeshObject(
     DT = Nothing
     for i in (mesh.a, mesh.n, mesh.e, mesh.f, mesh.v)
         if i !== nothing
-            d = eltype(i)
-            if d <: AbstractFloat
-                DT = Float64
-                break
+            for j in values(i)
+                d = dtype(j; isbits=true)
+                if d <: AbstractFloat
+                    DT = Float64
+                    break
+                end
             end
         end
     end
@@ -705,10 +707,9 @@ function UnstructuredMeshObject(
     DT = Nothing
     for i in (a, n, e, f, v)
         if i !== nothing
-            P = platform(i._N)
             d = eltype(i)
             if d <: AbstractFloat
-                DT = d
+                DT = Float64
                 break
             end
         end
@@ -808,9 +809,9 @@ Base.getindex(community::UnstructuredMeshObject, s::Symbol) =
     getfield(community, s)
 
 ## Copy
-function Base.copy(field::UnstructuredMeshObject)
+function Base.copy(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}) where {P, D, S, DT, A, N, E, F, V}
 
-    UnstructuredMeshObject(
+    UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}(
         field.a === nothing ? nothing : copy(field.a),
         field.n === nothing ? nothing : copy(field.n),
         field.e === nothing ? nothing : copy(field.e),
@@ -820,9 +821,9 @@ function Base.copy(field::UnstructuredMeshObject)
 
 end
 
-function partialCopy(field::UnstructuredMeshObject, copyArgs)
+function partialCopy(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}, copyArgs) where {P, D, S, DT, A, N, E, F, V}
 
-    UnstructuredMeshObject(
+    UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}(
         field.a === nothing ? nothing : partialCopy(field.a, [j for (i,j) in copyArgs if i == :a]),
         field.n === nothing ? nothing : partialCopy(field.n, [j for (i,j) in copyArgs if i == :n]),
         field.e === nothing ? nothing : partialCopy(field.e, [j for (i,j) in copyArgs if i == :e]),
@@ -833,9 +834,9 @@ function partialCopy(field::UnstructuredMeshObject, copyArgs)
 end
 
 ## Zero
-function Base.zero(field::UnstructuredMeshObject)
+function Base.zero(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}) where {P, D, S, DT, A, N, E, F, V}
 
-    UnstructuredMeshObject(
+    UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}(
         field.a === nothing ? nothing : zero(field.a),
         field.n === nothing ? nothing : zero(field.n),
         field.e === nothing ? nothing : zero(field.e),
@@ -958,7 +959,6 @@ for type in [
                 end
             end
         end
-
     end
 end
 

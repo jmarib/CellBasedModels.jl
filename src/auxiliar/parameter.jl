@@ -130,15 +130,15 @@ param_tuple = parameterConvert(params)
 # NamedTuple with (:velocity, :temperature) => (Parameter(...), Parameter(...))
 ```
 """
-function parameterConvert(parameters; modifiedIn::Vector{Symbol}=Symbol[])
+function parameterConvert(parameters; modifiedIn::Vector{Tuple}=Tuple[])
     keys_tuple = Tuple(keys(parameters))
     l = []
     for i in keys_tuple
         if parameters[i] isa Parameter
             push!(l, parameters[i])
-            l[end]._modifiedIn = modifiedIn
+            l[end]._modifiedIn = copy(modifiedIn)
         elseif parameters[i] isa DataType
-            push!(l, Parameter(parameters[i], _modifiedIn=modifiedIn))
+            push!(l, Parameter(parameters[i], _modifiedIn=copy(modifiedIn)))
         else
             error("Parameters must be of type Parameter or DataType. Given: $(parameters[i]) for parameter $i")
         end
