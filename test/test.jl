@@ -7,97 +7,83 @@ import StaticArrays: SizedVector
 using Profile
 using Profile.Allocs
 using PProf
+import SparseConnectivityTracer, ADTypes
 
 props = (
         a = Parameter(Float64, description="param a", dimensions=:M, defaultValue=1.0),
         b = Parameter(Int, description="param b", dimensions=:count, defaultValue=0),
     )
 
-mesh = UnstructuredMesh(
+mesh = StructuredMesh(
     3;
-    propertiesAgent  = props,
+    propertiesCell  = props,
 )
-
-# @addRule(model=mesh, scope=mechanics,
-# function f!(du, u, p, t)
-
-#     for i in 1:length(u.a)
-#         du.a.a[i] = rand()
-#         du.a.b[i] += 1
-#     end
-
-# end
-# )
 
 @addODE(model=mesh, scope=biochemistry, broadcasting=true,
 function g!(du, u, p, t)
 
-    du.n.x .= 1
+    du.c.a .= u.c.a
 
 end
 )
 
-# println(mesh)
+meshObject = StructuredMeshObject(
+            mesh,
+            simulationBox=[0 1;0 1;0 1], gridSpacing=[0.1, 0.1, 0.1]
+        )
 
-N = 100000
-T = 100
+detector = SparseConnectivityTracer.TracerSparsityDetector()
+dmeshObject = copy(meshObject)
+jac_sparsity = ADTypes.jacobian_sparsity(
+    (du, u) -> g!(du, u, tuple(), 0.0), dmeshObject, meshObject, detector)
 
-function evolve!(integrator, steps)
-    for i in 1:steps
-        step!(integrator)
-    end
-end
+println("Jacobian sparsity pattern:")
+display(jac_sparsity)
 
-meshObject = UnstructuredMeshObject(
-        mesh,
-        # agentN=10,
-        nodeN=N,
-    )
+# problem = CBProblem(
+#     mesh,
+#     meshObject,
+#     (0.0, 1.0),
+# )
+# integrator = init(
+#     problem,
+#     dt=0.1,
+#     biochemistry=Euler()
+# )
 
-problem = CBProblem(
-    mesh,
-    meshObject,
-    (0.0, 1.0),
-)
-integrator = init(
-    problem,
-    dt=0.1,
-    biochemistry=Euler()
-)
+# @btime evolve!(integrator, T)
 
-@btime evolve!(integrator, T)
+# # Profile.clear()
+# # @profile evolve!(integrator, T)
+# # # pprof(; webport=8080, webhost="localhost")
+# # Profile.print(format=:flat, noisefloor=2, sortedby=:count)
 
-# Profile.clear()
-# @profile evolve!(integrator, T)
-# # pprof(; webport=8080, webhost="localhost")
-# Profile.print(format=:flat, noisefloor=2, sortedby=:count)
-
-f!(du,u,p,t) = begin
-    du .= 1
-end
-
-x = zeros(N)
-
-problem = ODEProblem(f!, x, (0.0, 1.0))
-integrator2 = init(
-    problem,
-    Euler(),
-    dt=0.1,
-    save_everystep=false,
-)
-
-@btime evolve!(integrator2, T)
-
-# Profile.clear()
-# @profile evolve!(integrator2, T)
-# # pprof(; webport=8080, webhost="localhost")
-# Profile.print(format=:flat, noisefloor=2, sortedby=:count)
-
-# function f!(integrator)
-#     DifferentialEquations.DiffEqBase.@.. integrator.integrators.biochemistry.u = integrator.integrators.biochemistry.u + 2.0
+# f!(du,u,p,t) = begin
+#     du .= 1
 # end
-# @btime f!(integrator)
-# function f2!(integrator)
-#     DifferentialEquations.DiffEqBase.@.. integrator2.u = integrator2.u + 2.0
-# end
-# @btime f2!(integrator2)
+
+# x = zeros(N)
+
+# problem = ODEProblem(f!, x, (0.0, 1.0))
+# integrator2 = init(
+#     problem,
+#     Euler(),
+#     dt=0.1,
+#     save_everystep=false,
+# )
+
+# @btime evolve!(integrator2, T)
+
+# # Profile.clear()
+# # @profile evolve!(integrator2, T)
+# # # pprof(; webport=8080, webhost="localhost")
+# # Profile.print(format=:flat, noisefloor=2, sortedby=:count)
+
+# # function f!(integrator)
+# #     DifferentialEquations.DiffEqBase.@.. integrator.integrators.biochemistry.u = integrator.integrators.biochemistry.u + 2.0
+# # end
+# # @btime f!(integrator)
+# # function f2!(integrator)
+# #     DifferentialEquations.DiffEqBase.@.. integrator2.u = integrator2.u + 2.0
+# # end
+# # @btime f2!(integrator2)

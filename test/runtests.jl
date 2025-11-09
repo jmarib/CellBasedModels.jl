@@ -13,7 +13,7 @@ benchmark = true #just for internal optimizations
     # include("testIndexing.jl")
     # include("testParameter.jl")
 
-    include("testUnstructuredMesh.jl")
+    # include("testUnstructuredMesh.jl")
     # include("testStructuredMesh.jl")
     # include("testMultiMesh.jl")
     # include("testAddFunctions.jl")
@@ -27,7 +27,7 @@ end
 
 if benchmark
 
-    # include("test.jl")
+    include("test.jl")
 
     N = 100000
     n = 10000

@@ -21,7 +21,7 @@ import StaticArrays: SizedVector
         for dims in 1:3
             mesh = StructuredMesh(
                 dims;
-                properties  = props,
+                propertiesCell  = props,
             )
 
             @test mesh isa StructuredMesh
@@ -30,12 +30,12 @@ import StaticArrays: SizedVector
         end
 
         # Invalid dimension
-        @test_throws ErrorException StructuredMesh(-1, properties=props)
-        @test_throws ErrorException StructuredMesh(4, properties=props)
+        @test_throws ErrorException StructuredMesh(-1, propertiesCell=props)
+        @test_throws ErrorException StructuredMesh(4, propertiesCell=props)
 
         # Show output test
         io = IOBuffer()
-        show(io, StructuredMesh(2; properties=props))
+        show(io, StructuredMesh(2; propertiesCell=props))
         output = String(take!(io))
         @test occursin("StructuredMesh with dimensions 2", output)
     end
@@ -47,7 +47,7 @@ import StaticArrays: SizedVector
         for dims in 1:3
             mesh = StructuredMesh(
                 dims;
-                properties = props,
+                propertiesCell = props,
             )
 
             obj = StructuredMeshObject(mesh, 
@@ -67,7 +67,7 @@ import StaticArrays: SizedVector
         for dims in 1:3
             mesh = StructuredMesh(
                 dims;
-                properties = props,
+                propertiesCell = props,
             )
             # Copy
             obj = StructuredMeshObject(mesh, 
@@ -86,7 +86,7 @@ import StaticArrays: SizedVector
         for dims in 1:3
             mesh = StructuredMesh(
                 dims;
-                properties = props,
+                propertiesCell = props,
             )
             # zero
             obj = StructuredMeshObject(mesh, 
@@ -105,7 +105,7 @@ import StaticArrays: SizedVector
         for dims in 1:3
             mesh = StructuredMesh(
                 dims;
-                properties = props,
+                propertiesCell = props,
             )
             # toGPU/toCPU
             if CUDA.has_cuda()
@@ -127,7 +127,7 @@ import StaticArrays: SizedVector
         for dims in 1:3
             mesh = StructuredMesh(
                 dims;
-                properties = props,
+                propertiesCell = props,
             )
             # copyto!
             obj = StructuredMeshObject(mesh, 
@@ -158,7 +158,7 @@ import StaticArrays: SizedVector
         for dims in 1:3
             mesh = StructuredMesh(
                 dims;
-                properties = props,
+                propertiesCell = props,
             )
             # Broadcast
             obj = StructuredMeshObject(mesh, 
@@ -212,7 +212,7 @@ import StaticArrays: SizedVector
         for dims in 1:3
             mesh = StructuredMesh(
                 dims;
-                properties = props,
+                propertiesCell = props,
             )
             # Kernel works
             if CUDA.has_cuda()
@@ -235,7 +235,7 @@ import StaticArrays: SizedVector
         for dims in 1:3
             mesh = StructuredMesh(
                 dims;
-                properties = props,
+                propertiesCell = props,
             )
             # DifferentialEquations.jl compatibility
             function fODE!(du, u, p, t)

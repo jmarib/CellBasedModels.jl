@@ -1,25 +1,38 @@
 ######################################################################################################
 # AGENT STRUCTURE
 ######################################################################################################
-struct StructuredMesh{D, S, P} <: AbstractMesh
+struct StructuredMesh{D, S, PC, PA} <: AbstractMesh
 
-    properties::NamedTuple                   # Dictionary to hold agent properties
+    c::Union{Nothing, NamedTuple}                   # Dictionary to hold cell properties
+    a::Union{Nothing, NamedTuple}                   # Dictionary to hold agent properties
+    _functions::Dict{Symbol, Any}    # Dictionary to hold functions associated with the mesh
 
 end
 
 function StructuredMesh(
     dims::Int;
-    properties::NamedTuple
+    propertiesCell::Union{Nothing, NamedTuple} = nothing,
+    propertiesAgent::Union{Nothing, NamedTuple} = nothing,
 )
 
     if dims < 1 || dims > 3
         error("dims must be between 1 and 3. Found $dims")
     end
 
-    properties = parameterConvert(properties)
+    _c = nothing
+    if propertiesCell !== nothing
+        _c = parameterConvert(propertiesCell)
+    end
 
-    return StructuredMesh{dims, Nothing, typeof(properties)}(
-        properties
+    _a = nothing
+    if propertiesAgent !== nothing
+        _a = parameterConvert(propertiesAgent)
+    end
+
+    return StructuredMesh{dims, Nothing, typeof(_c), typeof(_a)}(
+        _c,
+        _a,
+        Dict{Symbol, Any}()
     )
 end
 
@@ -32,7 +45,7 @@ function show(io::IO, x::StructuredMesh{D}) where {D}
     for p in propertynames(x)
         props = getfield(x, p)
         if props !== nothing
-            println(io, replace(uppercase(string(p)), "PROPERTIES"=>"PROPERTIES "))
+            println(io, p)
             println(io, @sprintf("\t%-15s %-15s %-15s %-20s %-20s %-s", "Name", "DataType", "Dimensions", "Default_Value", "ModifiedIn", "Description"))
             println(io, "\t" * repeat("-", 85))
             for (name, par) in pairs(props)
@@ -62,14 +75,87 @@ end
 spatialDims(::StructuredMesh{D}) where {D} = D
 specialization(::StructuredMesh{D, S}) where {D, S} = S
 
+function addFunction!(mesh::StructuredMesh, type, scope, params, functions)
+
+    for param in params
+        if length(param) != 2
+            error("Each parameter modification must be a tuple of (field, parameter_name). Found: $param. Most probably you assigned incorrectly a parameter in a function (e.g. mesh.$field_name.$parameter_name). Valid parameters are: \n $mesh")
+        end
+
+        field_name, parameter_name = param
+
+        field = nothing
+        if field_name in fieldnames(typeof(mesh))
+            field = getfield(mesh, field_name)
+        else
+            error("Mesh does not have field $field_name. Available fields are: $(fieldnames(typeof(mesh))). Most probably you assigned incorrectly a parameter in a function (e.g. mesh.$field_name.$parameter_name). Valid parameters are: \n $mesh")
+        end  
+
+        if parameter_name in keys(field)
+            par = field[parameter_name]
+            CellBasedModels.setModifiedIn!(par, type, scope)
+        else
+            error("Parameter $parameter_name does not exist in field $field_name. Most probably you assigned incorrectly a parameter in a function (e.g. mesh.$field_name.$parameter_name). Valid parameters are: \n $mesh")
+        end
+    end
+
+    if scope in keys(mesh._functions)
+        error("Function scope $scope is already defined for the mesh. Multiple definitions are not allowed.")
+    else
+        mesh._functions[scope] = (type, functions)
+    end
+
+    return
+end
+
+function modifiedInScope(mesh::StructuredMesh, scope::Symbol)
+
+    modified = []
+
+    for field in (:c, :a)
+        props = getfield(mesh, field)
+        if props !== nothing
+            for (name, par) in pairs(props)
+                for (t, s) in par._modifiedIn
+                    if s == scope
+                        push!(modified, (field, name))
+                    end
+                end
+            end
+        end
+    end
+
+    return modified
+end
+
+function modifiedInScope(mesh::StructuredMesh)
+
+    modified = []
+
+    for field in (:c, :a)
+        props = getfield(mesh, field)
+        if props !== nothing
+            for (name, par) in pairs(props)
+                for (t, s) in par._modifiedIn
+                    push!(modified, (field, name))
+                end
+            end
+        end
+    end
+
+    return modified
+end
+
 ######################################################################################################
 # StructuredMeshObject
 ######################################################################################################
 struct StructuredMeshObject{
-        P, D, S, PR, PRef, SB, NG
+        P, D, S, PC, PA, PCRef, PARef, SB, NG
     } <: AbstractMeshObject
-    p::PR
-    _pReference::PRef
+    c::PC
+    a::PA
+    _pcReference::PCRef
+    _paReference::PARef
     _simulationBox::SB
     _gridSpacing::NG
 end
@@ -97,52 +183,71 @@ function StructuredMeshObject(
     gridSpacing = SizedVector{D,standardDataType(AbstractFloat)}(gridSpacing)
 
     gridSize = Int.(ceil.((simulationBox[:, 2] .- simulationBox[:, 1]) ./ gridSpacing))
-    fields = NamedTuple{keys(mesh.properties)}([zeros(dtype(j, isbits=true), gridSize...) for (i,j) in pairs(mesh.properties)])
+    
+    fieldsCell = nothing
+    _pcReference = SizedVector{0, Bool}([])
+    if mesh.c !== nothing
+        fieldsCell = NamedTuple{keys(mesh.c)}([zeros(dtype(j, isbits=true), gridSize...) for (i,j) in pairs(mesh.c)])
+        _pcReference = SizedVector{length(fieldsCell), Bool}([true for _ in 1:length(fieldsCell)])
+    end
 
-    _pReference = SizedVector{length(fields), Bool}([true for _ in 1:length(fields)])
+    fieldsAgent = nothing
+    _paReference = SizedVector{0, Bool}([])
+    if mesh.a !== nothing
+        fieldsAgent = NamedTuple{keys(mesh.a)}([zeros(dtype(j, isbits=true), gridSize...) for (i,j) in pairs(mesh.a)])
+        _paReference = SizedVector{length(fieldsAgent), Bool}([true for _ in 1:length(fieldsAgent)])
+    end
 
     P = platform()
 
     return StructuredMeshObject{
-            P, D, S, typeof(fields), typeof(_pReference), typeof(simulationBox), typeof(gridSpacing)
+            P, D, S, typeof(fieldsCell), typeof(fieldsAgent), typeof(_pcReference), typeof(_paReference), typeof(simulationBox), typeof(gridSpacing)
         }(
-            fields, _pReference, simulationBox, gridSpacing
+            fieldsCell, fieldsAgent, _pcReference, _paReference, simulationBox, gridSpacing
         )
 end
 
 function StructuredMeshObject(
-        fields, pReference, simulationBox, gridSpacing
+        fieldsCell, fieldsAgent, pReferenceCell, pReferenceAgent, simulationBox, gridSpacing
     )
 
-    P = platform(fields[1])
+    P = platform()
     D = length(gridSpacing)
     S = Nothing
-    PR = typeof(fields)
-    PRef = typeof(pReference)
+    PC = typeof(fieldsCell)
+    PA = typeof(fieldsAgent)
+    PCRef = typeof(pReferenceCell)
+    PARef = typeof(pReferenceAgent)
     SB = typeof(simulationBox)
     NG = typeof(gridSpacing)
 
     return StructuredMeshObject{
-            P, D, S, PR, PRef, SB, NG
+            P, D, S, PC, PA, PCRef, PARef, SB, NG
         }(
-            fields, pReference, simulationBox, gridSpacing
+            fieldsCell, fieldsAgent, pReferenceCell, pReferenceAgent, simulationBox, gridSpacing
         )
 end
 
-function Base.show(io::IO, x::StructuredMeshObject{P, D}) where {P, D}
-    println(io, "\nStructuredMeshObject platform=$P dimensions=$D shape=$(size(x.p[1]))\n")
-    println(io, "simulationBox=$(x._simulationBox) spacing=$(x._gridSpacing)\n")
-    CellBasedModels.show(io, x)
-    println(io, "\t* -> indicates passed by reference\n")
-end
-
-function show(io::IO, x::StructuredMeshObject{P, D, S, PR, PRef, SB, NG}, full=false) where {P, D, S, PR, PRef, SB, NG}
-    println(io, @sprintf("\t%-20s %-15s", "Name (Public)", "DataType"))
-    println(io, "\t" * repeat("-", 85))
-    for ((name, par), c) in zip(pairs(x.p), x._pReference)
-        println(io, @sprintf("\t%-20s %-15s", 
-            c ? string("*", name) : string(name),
-            typeof(par)))
+function show(io::IO, x::StructuredMeshObject{P, D, S, PC, PA, PCRef, PARef, SB, NG}, full=false) where {P, D, S, PC, PA, PCRef, PARef, SB, NG}
+    if x.c !== nothing
+        println(io, "Properties Cell:")
+        println(io, @sprintf("\t%-20s %-15s", "Name (Public)", "DataType"))
+        println(io, "\t" * repeat("-", 85))
+        for ((name, par), c) in zip(pairs(x.c), x._pcReference)
+            println(io, @sprintf("\t%-20s %-15s", 
+                c ? string("*", name) : string(name),
+                typeof(par)))
+        end
+    end
+    if x.a !== nothing
+        println(io, "Properties Agent:")
+        println(io, @sprintf("\t%-20s %-15s", "Name (Public)", "DataType"))
+        println(io, "\t" * repeat("-", 85))
+        for ((name, par), c) in zip(pairs(x.a), x._paReference)
+            println(io, @sprintf("\t%-20s %-15s", 
+                c ? string("*", name) : string(name),
+                typeof(par)))
+        end
     end
 end
 
@@ -161,7 +266,7 @@ end
 #         }}) where {
 #             P, D, S, A, N, E, F, V,
 #         }
-#     for (props, propsnames) in zip((A, N, E, F, V), ("PropertiesAgent", "PropertiesNode", "PropertiesEdge", "PropertiesFace", "PropertiesVolume"))
+#     for (props, propsnames) in zip((A, N, E, F, V), ("a", "PropertiesNode", "PropertiesEdge", "PropertiesFace", "PropertiesVolume"))
 #         if props !== Nothing
 #             print(io, "\t", string(propsnames), "Meta", "=(")
 #             # println(propsmeta)
@@ -177,9 +282,144 @@ end
 #     end
 # end
 
-Base.length(::StructuredMeshObject{P, D, S, PR}) where {P, D, S, PR} = length(PR.parameters[1])
+function Base.length(x::StructuredMeshObject{P, D, S, PC, PA}) where {P, D, S, PC, PA}
+    l = 0
+    l += x.c === nothing ? 0 : length(x.c) * length(x.c[1])
+    l += x.a === nothing ? 0 : length(x.a) * length(x.a[1])
+    return l
+end 
+Base.size(mesh::StructuredMeshObject) = (length(mesh.c), size(mesh.c[1])...)
 
-Base.size(mesh::StructuredMeshObject) = (length(mesh), size(mesh.p[1])...)
+import SparseConnectivityTracer
+
+# Allocate index matrix - should return similar structure with Int indices
+function SparseConnectivityTracer.allocate_index_matrix(A::StructuredMeshObject{P, D, S, PC, PA}) where {P, D, S, PC, PA}
+    fieldsCell = nothing
+    if A.c !== nothing
+        fieldsCell = NamedTuple{keys(A.c)}([similar(field, Int) for field in values(A.c)])
+    end
+    
+    fieldsAgent = nothing  
+    if A.a !== nothing
+        fieldsAgent = NamedTuple{keys(A.a)}([similar(field, Int) for field in values(A.a)])
+    end
+    
+    return StructuredMeshObject(
+        fieldsCell, fieldsAgent, A._pcReference, A._paReference, A._simulationBox, A._gridSpacing
+    )
+end
+
+# Trace input - enumerate indices and create tracers
+function SparseConnectivityTracer.trace_input(::Type{T}, xs::StructuredMeshObject, i) where {T <: Union{SparseConnectivityTracer.AbstractTracer, SparseConnectivityTracer.Dual}}
+    # Create index matrix
+    is = SparseConnectivityTracer.allocate_index_matrix(xs)
+    
+    # Fill with enumerated indices
+    current_idx = i - 1
+    
+    if xs.c !== nothing
+        for field in values(is.c)
+            num_elements = length(field)
+            field .= reshape(current_idx+1:current_idx+num_elements, size(field))
+            current_idx += num_elements
+        end
+    end
+    
+    if xs.a !== nothing
+        for field in values(is.a)
+            num_elements = length(field)
+            field .= reshape(current_idx+1:current_idx+num_elements, size(field))
+            current_idx += num_elements
+        end
+    end
+    
+    # Create tracers using the index matrix
+    return create_tracers(T, xs, is)
+end
+
+# Create tracers method for your type
+function create_tracers(::Type{T}, xs::G, is) where {T, G<:StructuredMeshObject}
+    fieldsCell = nothing
+    if xs.c !== nothing
+        fieldsCell = NamedTuple{keys(xs.c)}([
+            SparseConnectivityTracer.create_tracers(T, xs.c[k], is.c[k]) 
+            for k in keys(xs.c)
+        ])
+    end
+    
+    fieldsAgent = nothing
+    if xs.a !== nothing  
+        fieldsAgent = NamedTuple{keys(xs.a)}([
+            SparseConnectivityTracer.create_tracers(T, xs.a[k], is.a[k])
+            for k in keys(xs.a)
+        ])
+    end
+    
+    return StructuredMeshObject(
+        fieldsCell, fieldsAgent, xs._pcReference, xs._paReference, xs._simulationBox, xs._gridSpacing
+    )
+end
+
+# Add similar method for SparseConnectivityTracer compatibility
+function Base.similar(x::StructuredMeshObject{P, D, S, PC, PA}, ::Type{T}) where {P, D, S, PC, PA, T}
+    fieldsCell = nothing
+    if x.c !== nothing
+        fieldsCell = NamedTuple{keys(x.c)}([similar(field, T) for field in values(x.c)])
+    end
+    
+    fieldsAgent = nothing  
+    if x.a !== nothing
+        fieldsAgent = NamedTuple{keys(x.a)}([similar(field, T) for field in values(x.a)])
+    end
+    
+    return StructuredMeshObject(
+        fieldsCell, fieldsAgent, x._pcReference, x._paReference, x._simulationBox, x._gridSpacing
+    )
+end
+
+# Also add the standard similar method
+function Base.similar(x::StructuredMeshObject{P, D, S, PC, PA}) where {P, D, S, PC, PA}
+    return similar(x, eltype(x))
+end
+
+# Add fill! method for SparseConnectivityTracer compatibility
+function Base.fill!(x::StructuredMeshObject, value)
+    if x.c !== nothing
+        for field in values(x.c)
+            fill!(field, value)
+        end
+    end
+    
+    if x.a !== nothing
+        for field in values(x.a)
+            fill!(field, value)
+        end
+    end
+    
+    return x
+end
+
+# Add to_array method for SparseConnectivityTracer compatibility
+function SparseConnectivityTracer.to_array(x::StructuredMeshObject)
+    arrays = []
+    
+    # Collect cell fields
+    if x.c !== nothing
+        for field in values(x.c)
+            push!(arrays, vec(field))  # Flatten each field to 1D
+        end
+    end
+    
+    # Collect agent fields  
+    if x.a !== nothing
+        for field in values(x.a)
+            push!(arrays, vec(field))  # Flatten each field to 1D
+        end
+    end
+    
+    # Concatenate all fields into a single vector
+    return vcat(arrays...)
+end
 
 Base.ndims(::StructuredMeshObject{P, D}) where {P, D} = 1 + D
 Base.ndims(::Type{<:StructuredMeshObject{P, D}}) where {P, D} = 1 + D
@@ -203,9 +443,11 @@ Base.getindex(community::StructuredMeshObject, s::Symbol) = community.p[s]
 ## Copy
 function Base.copy(field::StructuredMeshObject{P, D, S}) where {P, D, S}
 
-    StructuredMeshObject{P, D, S, typeof(field.p), typeof(field._pReference), typeof(field._simulationBox), typeof(field._gridSpacing)}(
-        NamedTuple{keys(field.p)}([r ? field.p[i] : copy(field.p[i]) for (i,r) in zip(keys(field.p), field._pReference)]),
-        field._pReference,
+    StructuredMeshObject{P, D, S, typeof(field.c), typeof(field.a), typeof(field._pcReference), typeof(field._paReference), typeof(field._simulationBox), typeof(field._gridSpacing)}(
+        field.c === nothing ? field.c : NamedTuple{keys(field.c)}([r ? field.c[i] : copy(field.c[i]) for (i,r) in zip(keys(field.c), field._pcReference)]),
+        field.a === nothing ? field.a : NamedTuple{keys(field.a)}([r ? field.a[i] : copy(field.a[i]) for (i,r) in zip(keys(field.a), field._paReference)]),
+        field._pcReference,
+        field._paReference,
         field._simulationBox,
         field._gridSpacing,
     )
@@ -215,9 +457,11 @@ end
 ## Zero
 function Base.zero(field::StructuredMeshObject{P, D, S}) where {P, D, S}
 
-    StructuredMeshObject{P, D, S, typeof(field.p), typeof(field._pReference), typeof(field._simulationBox), typeof(field._gridSpacing)}(
-        NamedTuple{keys(field.p)}([r ? field.p[i] : zero(field.p[i]) for (i,r) in zip(keys(field.p), field._pReference)]),
-        field._pReference,
+    StructuredMeshObject{P, D, S, typeof(field.c), typeof(field.a), typeof(field._pcReference), typeof(field._paReference), typeof(field._simulationBox), typeof(field._gridSpacing)}(
+        field.c === nothing ? field.c : NamedTuple{keys(field.c)}([r ? field.c[i] : zeros(field.c[i]) for (i,r) in zip(keys(field.c), field._pcReference)]),
+        field.a === nothing ? field.a : NamedTuple{keys(field.a)}([r ? field.a[i] : zeros(field.a[i]) for (i,r) in zip(keys(field.a), field._paReference)]),
+        field._pcReference,
+        field._paReference,
         field._simulationBox,
         field._gridSpacing,
     )

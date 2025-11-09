@@ -139,7 +139,7 @@ function addFunction!(mesh::UnstructuredMesh, type, scope, params, functions)
         if field_name in fieldnames(typeof(mesh))
             field = getfield(mesh, field_name)
         else
-            error("Mesh does not have field $field_name. Available fields are: $(fieldnames(mesh)). Most probably you assigned incorrectly a parameter in a function (e.g. mesh.$field_name.$parameter_name). Valid parameters are: \n $mesh")
+            error("Mesh does not have field $field_name. Available fields are: $(fieldnames(typeof(mesh))). Most probably you assigned incorrectly a parameter in a function (e.g. mesh.$field_name.$parameter_name). Valid parameters are: \n $mesh")
         end  
 
         if parameter_name in keys(field)
