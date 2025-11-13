@@ -661,6 +661,22 @@ function RecursiveArrayTools.recursivefill!(
     dest
 end
 
+# Special version for functions that should be called per element (like randn)
+function RecursiveArrayTools.recursivefill!(
+    dest::UnstructuredMeshObjectField{P, DT, PR, PRN, PRC},
+    value::Function) where {P, DT, PR, PRN, PRC}
+    N = lengthProperties(dest)
+    @inbounds for i in 1:PRN
+        if !dest._pReference[i]
+            # Call the function for each element individually
+            for j in 1:N
+                dest._p[i][j] = value()
+            end
+        end
+    end
+    dest
+end
+
 ## Broadcasting
 struct UnstructuredMeshObjectFieldStyle{N} <: Broadcast.AbstractArrayStyle{N} end
 
@@ -682,6 +698,22 @@ Base.Broadcast.result_style(::Base.Broadcast.AbstractArrayStyle{M}, ::Unstructur
     UnstructuredMeshObjectFieldStyle{max(M,N)}()
 
 Broadcast.broadcastable(x::UnstructuredMeshObjectField) = x
+
+# Add similar method for Broadcasted objects
+function Base.similar(bc::Broadcast.Broadcasted{UnstructuredMeshObjectFieldStyle{N}}, ::Type{ElType}) where {N, ElType}
+    # Find the first UnstructuredMeshObjectField in the arguments to use as template
+    A = find_umof(bc)
+    return similar(A)
+end
+
+# Helper function to find UnstructuredMeshObjectField in broadcast arguments
+find_umof(bc::Base.Broadcast.Broadcasted) = find_umof(bc.args)
+find_umof(args::Tuple) = find_umof(find_umof(args[1]), Base.tail(args))
+find_umof(x) = x
+find_umof(a::UnstructuredMeshObjectField, rest) = a
+find_umof(::Any, rest) = find_umof(rest)
+find_umof(x::UnstructuredMeshObjectField) = x
+find_umof(::Tuple{}) = nothing
 
 for type in [
         Broadcast.Broadcasted{<:UnstructuredMeshObjectField},
@@ -889,6 +921,8 @@ Base.eltype(::Type{<:UnstructuredMeshObject{P, D, S, DT}}) where {P, D, S, DT} =
 Base.ndims(::UnstructuredMeshObject) = 1
 Base.ndims(::Type{<:UnstructuredMeshObject}) = 1
 
+Base.axes(x::UnstructuredMeshObject) = (Base.OneTo(1),)
+
 function Base.iterate(::UnstructuredMeshObject, state = 1)
     state >= 5 ? nothing : (state, state + 1)
 end
@@ -956,6 +990,18 @@ function partialCopy(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}, 
 end
 
 ## Similar
+function Base.similar(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}) where {P, D, S, DT, A, N, E, F, V}
+
+    UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}(
+        field.a === nothing ? nothing : similar(field.a),
+        field.n === nothing ? nothing : similar(field.n),
+        field.e === nothing ? nothing : similar(field.e),
+        field.f === nothing ? nothing : similar(field.f),
+        field.v === nothing ? nothing : similar(field.v),
+    )
+
+end
+
 function Base.similar(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}, _) where {P, D, S, DT, A, N, E, F, V}
 
     UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}(
@@ -1065,6 +1111,17 @@ function RecursiveArrayTools.recursivefill!(
     dest
 end
 
+## Fill!
+function Base.fill!(
+    dest::UnstructuredMeshObject,
+    value)
+
+    # For SDE noise generation, we should not fill with the same value everywhere
+    # Instead, delegate to recursivefill! which handles the proper filling per field
+    RecursiveArrayTools.recursivefill!(dest, value)
+    dest
+end
+
 ## Broadcasting
 struct UnstructuredMeshObjectStyle{N} <: Broadcast.AbstractArrayStyle{N} end
 
@@ -1086,6 +1143,22 @@ Base.Broadcast.result_style(::Base.Broadcast.AbstractArrayStyle{M}, ::Unstructur
     UnstructuredMeshObjectStyle{max(M,N)}()
 
 Broadcast.broadcastable(x::UnstructuredMeshObject) = x
+
+# Add similar method for Broadcasted objects
+function Base.similar(bc::Broadcast.Broadcasted{UnstructuredMeshObjectStyle{N}}, ::Type{ElType}) where {N, ElType}
+    # Find the first UnstructuredMeshObject in the arguments to use as template
+    A = find_umo(bc)
+    return similar(A)
+end
+
+# Helper function to find UnstructuredMeshObject in broadcast arguments
+find_umo(bc::Base.Broadcast.Broadcasted) = find_umo(bc.args)
+find_umo(args::Tuple) = find_umo(find_umo(args[1]), Base.tail(args))
+find_umo(x) = x
+find_umo(a::UnstructuredMeshObject, rest) = a
+find_umo(::Any, rest) = find_umo(rest)
+find_umo(x::UnstructuredMeshObject) = x
+find_umo(::Tuple{}) = nothing
 
 for type in [
         Broadcast.Broadcasted{<:UnstructuredMeshObject},
@@ -1151,7 +1224,48 @@ for type in [
                 end
             end
         end
+
+        dest
     end
+end
+
+# General fallback for any broadcast style
+@inline function Base.copyto!(
+        dest::UnstructuredMeshObject,
+        bc::Base.Broadcast.Broadcasted)
+    # Special handling for random number generation
+    if bc.f isa typeof(identity) && length(bc.args) == 1
+        arg = bc.args[1]
+        if arg isa Base.Broadcast.Broadcasted && arg.f isa typeof(randn) && isempty(arg.args)
+            # This is randn.() - generate different random numbers for each element
+            if getfield(dest, :a) !== nothing
+                RecursiveArrayTools.recursivefill!(getfield(dest, :a), randn)
+            end
+            if getfield(dest, :n) !== nothing  
+                RecursiveArrayTools.recursivefill!(getfield(dest, :n), randn)
+            end
+            if getfield(dest, :e) !== nothing
+                RecursiveArrayTools.recursivefill!(getfield(dest, :e), randn)
+            end
+            if getfield(dest, :f) !== nothing
+                RecursiveArrayTools.recursivefill!(getfield(dest, :f), randn)
+            end
+            if getfield(dest, :v) !== nothing
+                RecursiveArrayTools.recursivefill!(getfield(dest, :v), randn)
+            end
+            return dest
+        end
+    end
+    
+    # For other broadcasts, try to evaluate as scalar
+    try
+        val = bc[]  # Try to extract a scalar value
+        fill!(dest, val)
+    catch
+        # If that fails, we need a more sophisticated approach
+        error("Unsupported broadcast operation: $(typeof(bc))")
+    end
+    dest
 end
 
 #Specialized unpacking
