@@ -530,38 +530,20 @@ import StaticArrays: SizedVector
     @testset "UnstructuredMeshObject - DifferentialEquations compatibility" begin
         for dims in 0:3
             for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-                mesh = UnstructuredMesh(
-                    dims;
-                    propertiesAgent  = scope == :propertiesAgent  ? props : nothing,
-                    propertiesNode   = scope == :propertiesNode   ? props : nothing,
-                    propertiesEdge   = scope == :propertiesEdge   ? props : nothing,
-                    propertiesFace   = scope == :propertiesFace   ? props : nothing,
-                    propertiesVolume = scope == :propertiesVolume ? props : nothing,
-                )
-                # DifferentialEquations.jl compatibility
-                function fODE!(du, u, p, t)
-                    @. du[scope_index].a = 1
-                    return
-                end
-                obj = UnstructuredMeshObject(mesh, 
-                    agentN=2, agentNCache=4, 
-                    nodeN=2, nodeNCache=4, 
-                    edgeN=2, edgeNCache=4, 
-                    faceN=2, faceNCache=4, 
-                    volumeN=2, volumeNCache=4
-                )
-                if scope == :propertiesNode
-                    obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
-                else
-                    obj[scope_index]._pReference .= [false, true]
-                end
-                prob = ODEProblem(fODE!, obj, (0.0, 1.0))
-                integrator = init(prob, Euler(), dt=0.1, save_everystep=false)
-                for i in 1:10
-                    step!(integrator)
-                end
-                @test all(integrator.u[scope_index].a .≈ 1.0)
-                if CUDA.has_cuda()
+                for integratorAlg in (Euler(), RK4(), Tsit5())
+                    mesh = UnstructuredMesh(
+                        dims;
+                        propertiesAgent  = scope == :propertiesAgent  ? props : nothing,
+                        propertiesNode   = scope == :propertiesNode   ? props : nothing,
+                        propertiesEdge   = scope == :propertiesEdge   ? props : nothing,
+                        propertiesFace   = scope == :propertiesFace   ? props : nothing,
+                        propertiesVolume = scope == :propertiesVolume ? props : nothing,
+                    )
+                    # DifferentialEquations.jl compatibility
+                    function fODE!(du, u, p, t)
+                        @. du[scope_index].a = 1
+                        return
+                    end
                     obj = UnstructuredMeshObject(mesh, 
                         agentN=2, agentNCache=4, 
                         nodeN=2, nodeNCache=4, 
@@ -574,13 +556,33 @@ import StaticArrays: SizedVector
                     else
                         obj[scope_index]._pReference .= [false, true]
                     end
-                    obj_gpu = toGPU(obj)
-                    prob = ODEProblem(fODE!, obj_gpu, (0.0, 1.0))
-                    integrator = init(prob, Euler(), dt=0.1, save_everystep=false)
+                    prob = ODEProblem(fODE!, obj, (0.0, 1.0))
+                    integrator = init(prob, integratorAlg, dt=0.1, save_everystep=false)
                     for i in 1:10
-                        step!(integrator)
+                        step!(integrator, 0.1, true)
                     end
-                    @test all(Array(integrator.u[scope_index].a) .≈ 1.0)
+                    @test all(integrator.u[scope_index].a .≈ 1.0)
+                    if CUDA.has_cuda()
+                        obj = UnstructuredMeshObject(mesh, 
+                            agentN=2, agentNCache=4, 
+                            nodeN=2, nodeNCache=4, 
+                            edgeN=2, edgeNCache=4, 
+                            faceN=2, faceNCache=4, 
+                            volumeN=2, volumeNCache=4
+                        )
+                        if scope == :propertiesNode
+                            obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
+                        else
+                            obj[scope_index]._pReference .= [false, true]
+                        end
+                        obj_gpu = toGPU(obj)
+                        prob = ODEProblem(fODE!, obj_gpu, (0.0, 1.0))
+                        integrator = init(prob, integratorAlg, dt=0.1, save_everystep=false)
+                        for i in 1:10
+                            step!(integrator, 0.1, true)
+                        end
+                        @test all(Array(integrator.u[scope_index].a) .≈ 1.0)
+                    end
                 end
             end
         end

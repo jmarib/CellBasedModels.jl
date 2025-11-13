@@ -69,7 +69,8 @@ function analyze_rule_code(kwargs, fdefs; type)
                     tail = chain[2:end]
 
                     if lhs in protected_syms
-                        error("Assignment to protected symbol $(join(chain, '.')) is forbidden.")
+                        # error("Assignment to protected symbol $(join(chain, '.')) is forbidden.")
+                        @warn("Assignment to protected symbol '$lhs' is might give unexpected behaviours. Just do it if you are not modifying the parameter in other way that might override it.")
                     elseif lhs in tracked_syms
                         # println("Cases 0.0: ", ex)
                         error("Direct assignment to tracked symbol '$lhs = ...' is forbidden. You will be overriding a parameter of the function.")
@@ -105,7 +106,8 @@ function analyze_rule_code(kwargs, fdefs; type)
                     rhs_root = first(chain)
 
                     if lhs_root in protected_syms
-                        error("Assignment to protected symbol $(join(chain_lhs, '.')) is forbidden.")
+                        # error("Assignment to protected symbol $(join(chain_lhs, '.')) is forbidden.")
+                        @warn("Assignment to protected symbol '$(join(chain_lhs, '.'))' is might give unexpected behaviours. Just do it if you are not modifying the parameter in other way that might override it.")
                     elseif lhs_root in tracked_syms && index_lhs && kwargs.broadcasting
                         error("Assignment to tracked symbol $(join(chain_lhs, '.')) when `broadcasting=true` without a broadcasting operator is disallowed.")
                     elseif lhs_root in tracked_syms && !index_lhs && !kwargs.broadcasting
@@ -133,8 +135,8 @@ function analyze_rule_code(kwargs, fdefs; type)
                 tail = chain[2:end]
 
                 if root in protected_syms
-                    error("Assignment to protected symbol $(join(chain, '.')) is forbidden.")
-
+                    # error("Assignment to protected symbol $(join(chain, '.')) is forbidden.")
+                    @warn("Assignment to protected symbol '$(join(chain, '.'))' is might give unexpected behaviours. Just do it if you are not modifying the parameter in other way that might override it.")
                 elseif root in tracked_syms && (ex.head in broadcast_heads) && !(kwargs.broadcasting)
                     error("Broadcast assignment to tracked symbol $(join(chain, '.')) is forbidden without `broadcasting=true`.")
 

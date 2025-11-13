@@ -1,11 +1,26 @@
 import CellBasedModels: DATATYPE
+import CellBasedModels: lengthCache, lengthProperties, sizeFull, sizeFullCache, nCopyProperties
 import CellBasedModels: UnstructuredMeshObjectField, UnstructuredMeshObjectFieldStyle, UnstructuredMeshObject, UnstructuredMeshObjectStyle, unpack_voa
 import CellBasedModels: toCPU, toGPU, CPU, CPUSinglethread, CPUMultithreading
 
-Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._N[1]
-Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._N[1]
 lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._NCache[1]
 lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._NCache[1]
+lengthProperties(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._N[1]
+lengthProperties(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._N[1]
+Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = nCopyProperties(field) * CUDA.@allowscalar field._N[1]
+Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = nCopyProperties(field) * field._N[1]
+
+sizeFull(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = (field._NP, CUDA.@allowscalar field._N[1])
+sizeFull(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = (field._NP, field._N[1])
+sizeFullCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = (field._NP, CUDA.@allowscalar field._NCache[1])
+sizeFullCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = (field._NP, field._NCache[1])
+Base.size(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = (nCopyProperties(field), lengthProperties(field))
+Base.size(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = (nCopyProperties(field), lengthProperties(field))
+
+# Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._N[1]
+# Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._N[1]
+# lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._NCache[1]
+# lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._NCache[1]
 
 ########################################################################################
 # broadcasting support
@@ -19,7 +34,7 @@ for type in [
             dest::UnstructuredMeshObjectField{P, DT, PR, PRN, PRC},
             bc::$type) where {P<:Union{GPUCuda, GPUCuDevice}, DT, PR, PRN, PRC}
         bc = Broadcast.flatten(bc)
-        N = length(dest)
+        N = lengthProperties(dest)
         @inbounds for i in 1:PRN
             if !dest._pReference[i]
                 dest_ = @views dest._p[i][1:N]
@@ -31,7 +46,7 @@ for type in [
 end
 
 function unpack_voa(x::UnstructuredMeshObjectField{P}, i) where {P<:Union{GPUCuda, GPUCuDevice}}
-    @views x._p[i][1:length(x)]
+    @views x._p[i][1:lengthProperties(x)]
 end
 
 for type in [
@@ -46,7 +61,7 @@ for type in [
 
         d = getfield(dest, :a)
         if d !== nothing
-            np, n = size(d)
+            np, n = sizeFull(d)
             for j in 1:np
                 if !d._pReference[j]
                     dest_ = @views d._p[j][1:n]
@@ -57,7 +72,7 @@ for type in [
 
         d = getfield(dest, :n)
         if d !== nothing
-            np, n = size(d)
+            np, n = sizeFull(d)
             for j in 1:np
                 if !d._pReference[j]
                     dest_ = @views d._p[j][1:n]
@@ -68,7 +83,7 @@ for type in [
 
         d = getfield(dest, :e)
         if d !== nothing
-            np, n = size(d)
+            np, n = sizeFull(d)
             for j in 1:np
                 if !d._pReference[j]
                     dest_ = @views d._p[j][1:n]
@@ -79,7 +94,7 @@ for type in [
 
         d = getfield(dest, :f)
         if d !== nothing
-            np, n = size(d)
+            np, n = sizeFull(d)
             for j in 1:np
                 if !d._pReference[j]
                     dest_ = @views d._p[j][1:n]
@@ -90,7 +105,7 @@ for type in [
 
         d = getfield(dest, :v)
         if d !== nothing
-            np, n = size(d)
+            np, n = sizeFull(d)
             for j in 1:np
                 if !d._pReference[j]
                     dest_ = @views d._p[j][1:n]

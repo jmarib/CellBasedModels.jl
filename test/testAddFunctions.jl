@@ -39,7 +39,10 @@ using MacroTools: @capture, postwalk
                 ),
             )
         )
-        @test_throws ErrorException CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
+        # @test_logs :warn CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)        # Test that it runs without error and produces a warning
+        @test_nowarn @test_logs (:warn,) begin
+            CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
+        end
 
         # Direct assignment to tracked symbol (du)
         kwargs, functions = CellBasedModels.extract_parameters(1,
@@ -197,7 +200,9 @@ using MacroTools: @capture, postwalk
                 ),
             )
         )
-        @test_throws ErrorException CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
+        @test_nowarn @test_logs (:warn,) begin
+            CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
+        end
 
     end
 

@@ -44,6 +44,7 @@ struct CBIntegrator{M, I}
 
     u::M
     integrators::I
+    dt::Real
     
 end
 
@@ -77,7 +78,10 @@ function DifferentialEquations.init(problem::CBProblem; dt::Real, kwargs...)
         #Override arguments
         args[:save_everystep] = false
         args[:dt] = dt
-
+        args[:adaptive] = false
+        args[:dtmax] = dt
+        args[:dtmin] = dt
+        
         if typeof(deproblem) == RuleProblem
             integratorsDict[scope] = DifferentialEquations.init(deproblem; dt=dt)
         else
@@ -91,26 +95,49 @@ function DifferentialEquations.init(problem::CBProblem; dt::Real, kwargs...)
 
     integrators = (;integratorsDict...)
 
-    return CBIntegrator{typeof(problem.u), typeof(integrators)}(problem.u, integrators)
+    return CBIntegrator{typeof(problem.u), typeof(integrators)}(problem.u, integrators, dt)
 
 end
 
 function DifferentialEquations.step!(integrator::CBIntegrator)
 
+    dt = integrator.dt
+
+    # Step ODEs
     for (scope, deintegrator) in pairs(integrator.integrators)
         if typeof(deintegrator) != Rule
-            DifferentialEquations.step!(deintegrator)
+            DifferentialEquations.step!(deintegrator, dt, true)
+        end
+    end
+    # Update Us
+    for (scope, deintegrator) in pairs(integrator.integrators)
+        if typeof(deintegrator) != Rule
+            copyto!(integrator.u, deintegrator.u)
+        end
+    end
+    # Push results to deintegrators
+    for (scope, deintegrator) in pairs(integrator.integrators)
+        if typeof(deintegrator) == Rule
+            CellBasedModels.copyfrom!(deintegrator.u, integrator.u)
         end
     end
 
+    # Step Rules
     for (scope, deintegrator) in pairs(integrator.integrators)
         if typeof(deintegrator) == Rule
             DifferentialEquations.step!(deintegrator)
         end
     end
-
+    # Update Us
     for (scope, deintegrator) in pairs(integrator.integrators)
-        copyto!(integrator.u, deintegrator.u)
+        if typeof(deintegrator) == Rule
+            copyto!(integrator.u, deintegrator.u)
+        end
+    end
+
+    # Push results to deintegrators
+    for (scope, deintegrator) in pairs(integrator.integrators)
+        CellBasedModels.copyfrom!(deintegrator.u, integrator.u)
     end
 
     return nothing

@@ -1,3 +1,6 @@
+import RecursiveArrayTools
+import LinearAlgebra
+
 ######################################################################################################
 # AGENT STRUCTURE
 ######################################################################################################
@@ -463,7 +466,7 @@ end
         for name in fieldnames(UnstructuredMeshObjectField)
     ]
     cases = [
-        :(s === $(QuoteNode(name)) && return @views getfield(getfield(field, :_p), $(QuoteNode(name)))[1:length(field)])
+        :(s === $(QuoteNode(name)) && return @views getfield(getfield(field, :_p), $(QuoteNode(name)))[1:lengthProperties(field)])
         for name in PR.parameters[1]
     ]
 
@@ -474,14 +477,46 @@ end
     end
 end
 
-Base.length(field::UnstructuredMeshObjectField{P}) where {P<:CPU} = field._N[]
-Base.size(field::UnstructuredMeshObjectField) = (field._NP, length(field))
+nCopyProperties(field::UnstructuredMeshObjectField) = count(!, field._pReference)
+nRefProperties(field::UnstructuredMeshObjectField) = count(identity, field._pReference)
+
+lengthCache(field::UnstructuredMeshObjectField) = field._NCache[]
+lengthProperties(field::UnstructuredMeshObjectField) = field._N[]
+Base.length(field::UnstructuredMeshObjectField{P}) where {P<:CPU} = nCopyProperties(field) * field._N[]
+
+sizeFull(field::UnstructuredMeshObjectField) = (field._NP, field._N[])
+sizeFullCache(field::UnstructuredMeshObjectField) = (field._NP, field._NCache[])
+Base.size(field::UnstructuredMeshObjectField) = (nCopyProperties(field), lengthProperties(field))
 
 Base.eltype(::UnstructuredMeshObjectField{P, DT}) where {P, DT} = DT
 Base.eltype(::Type{<:UnstructuredMeshObjectField{P, DT}}) where {P, DT} = DT
 
 Base.getindex(field::UnstructuredMeshObjectField, i::Int) = field._p[i]
 Base.getindex(field::UnstructuredMeshObjectField, s::Symbol) = getproperty(field, s)
+
+## Norm
+function LinearAlgebra.norm(field::UnstructuredMeshObjectField{P, DT}, t) where {P, DT}
+    total = 0.0
+    N = lengthProperties(field)
+    @inbounds for (p, r) in zip(values(field._p), field._pReference)
+        if !r
+            total += sum(@views p[1:N]^2)
+        end
+    end
+    return sqrt(total)
+end
+
+## Pow2
+function pow2(field::UnstructuredMeshObjectField{P, DT}) where {P, DT}
+    total = 0.0
+    N = lengthProperties(field)
+    @inbounds for (p, r) in zip(values(field._p), field._pReference)
+        if !r
+            total += sum(@views p[1:N].^2)
+        end
+    end
+    return total
+end
 
 ## Copy
 function Base.copy(field::UnstructuredMeshObjectField)
@@ -536,6 +571,32 @@ function partialCopy(field::UnstructuredMeshObjectField, args)
 
 end
 
+## Similar
+
+function Base.similar(field::UnstructuredMeshObjectField)
+
+    UnstructuredMeshObjectField(
+        NamedTuple{keys(field._p)}(
+            r ? p : similar(p) for (p, r) in zip(values(field._p), field._pReference)
+        ),
+        field._NP,
+        field._pReference,
+
+        field._id,
+        field._idMax,
+
+        field._N,
+        field._NCache,
+        field._FlagsRemoved,
+        field._NRemoved,
+        field._NRemovedThread,
+        field._NAdded,
+        field._NAddedThread,
+        field._AddedAgents,
+        field._FlagOverflow,
+    )
+end
+
 ## Zero
 function Base.zero(field::UnstructuredMeshObjectField)
 
@@ -565,10 +626,36 @@ end
 @eval @inline function Base.copyto!(
     dest::UnstructuredMeshObjectField{P, DT, PR, PRN, PRC},
     bc::UnstructuredMeshObjectField{P, DT, PR, PRN, PRC}) where {P, DT, PR, PRN, PRC}
-    N = length(dest)
+    N = lengthProperties(dest)
     @inbounds for i in 1:PRN
         if !bc._pReference[i]
             copyto!(dest._p[i], 1, bc._p[i], 1, N)
+        end
+    end
+    dest
+end
+
+## Copyfrom!
+@eval @inline function copyfrom!(
+    dest::UnstructuredMeshObjectField{P, DT, PR, PRN, PRC},
+    bc::UnstructuredMeshObjectField{P, DT, PR, PRN, PRC}) where {P, DT, PR, PRN, PRC}
+    N = lengthProperties(dest)
+    @inbounds for i in 1:PRN
+        if !dest._pReference[i]
+            copyto!(dest._p[i], 1, bc._p[i], 1, N)
+        end
+    end
+    dest
+end
+
+## recursivefill!
+function RecursiveArrayTools.recursivefill!(
+    dest::UnstructuredMeshObjectField{P, DT, PR, PRN, PRC},
+    value) where {P, DT, PR, PRN, PRC}
+    N = lengthProperties(dest)
+    @inbounds for i in 1:PRN
+        if !dest._pReference[i]
+            @views fill!(dest._p[i][1:N], value)
         end
     end
     dest
@@ -605,7 +692,7 @@ for type in [
             dest::UnstructuredMeshObjectField{P, DT, PR, PRN, PRC},
             bc::$type) where {P, DT, PR, PRN, PRC}
         bc = Broadcast.flatten(bc)
-        N = length(dest)
+        N = lengthProperties(dest)
         @inbounds for i in 1:PRN
             if !dest._pReference[i]
                 copyto!(dest._p[i], 1, unpack_voa(bc, i), 1, N)
@@ -775,17 +862,26 @@ function show(io::IO, ::Type{UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V,}
     end
 end
 
-function Base.length(::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}) where {P, D, S, DT, A, N, E, F, V}
+function lengthProperties(mesh::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}) where {P, D, S, DT, A, N, E, F, V}
     c = 0
-    A !== nothing ? c += 1 : nothing
-    N !== nothing ? c += 1 : nothing
-    E !== nothing ? c += 1 : nothing
-    F !== nothing ? c += 1 : nothing
-    V !== nothing ? c += 1 : nothing
+    A !== Nothing ? c += 1 : nothing
+    N !== Nothing ? c += 1 : nothing
+    E !== Nothing ? c += 1 : nothing
+    F !== Nothing ? c += 1 : nothing
+    V !== Nothing ? c += 1 : nothing
+    return c
+end    
+function Base.length(mesh::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}) where {P, D, S, DT, A, N, E, F, V}
+    c = 0
+    A !== Nothing ? c += length(mesh.a) : nothing
+    N !== Nothing ? c += length(mesh.n) : nothing
+    E !== Nothing ? c += length(mesh.e) : nothing
+    F !== Nothing ? c += length(mesh.f) : nothing
+    V !== Nothing ? c += length(mesh.v) : nothing
     return c
 end    
 
-Base.size(mesh::UnstructuredMeshObject) = (length(mesh),)
+Base.size(mesh::UnstructuredMeshObject) = (lengthProperties(mesh),)
 
 Base.eltype(::UnstructuredMeshObject{P, D, S, DT}) where {P, D, S, DT} = DT
 Base.eltype(::Type{<:UnstructuredMeshObject{P, D, S, DT}}) where {P, D, S, DT} = DT
@@ -793,8 +889,8 @@ Base.eltype(::Type{<:UnstructuredMeshObject{P, D, S, DT}}) where {P, D, S, DT} =
 Base.ndims(::UnstructuredMeshObject) = 1
 Base.ndims(::Type{<:UnstructuredMeshObject}) = 1
 
-function Base.iterate(mesh::UnstructuredMeshObject, state = 1)
-    state >= length(mesh) ? nothing : (state, state + 1)
+function Base.iterate(::UnstructuredMeshObject, state = 1)
+    state >= 5 ? nothing : (state, state + 1)
 end
 
 platform(mesh::UnstructuredMeshObject{P}) where {P} = P
@@ -807,6 +903,32 @@ Base.getindex(community::UnstructuredMeshObject, i::Integer) =
     getfield(community, (:a, :n, :e, :f, :v)[i])
 Base.getindex(community::UnstructuredMeshObject, s::Symbol) =
     getfield(community, s)
+
+# Norm
+function LinearAlgebra.norm(u::UnstructuredMeshObject, t::Real)
+    n = zero(eltype(u))
+    if getfield(u, :a) !== nothing
+        n += pow2(getfield(u, :a))
+    end
+
+    if getfield(u, :n) !== nothing
+        n += pow2(getfield(u, :n))
+    end
+
+    if getfield(u, :e) !== nothing
+        n += pow2(getfield(u, :e))
+    end
+
+    if getfield(u, :f) !== nothing
+        n += pow2(getfield(u, :f))
+    end
+
+    if getfield(u, :v) !== nothing
+        n += pow2(getfield(u, :v))
+    end
+
+    return sqrt(n)
+end
 
 ## Copy
 function Base.copy(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}) where {P, D, S, DT, A, N, E, F, V}
@@ -829,6 +951,19 @@ function partialCopy(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}, 
         field.e === nothing ? nothing : partialCopy(field.e, [j for (i,j) in copyArgs if i == :e]),
         field.f === nothing ? nothing : partialCopy(field.f, [j for (i,j) in copyArgs if i == :f]),
         field.v === nothing ? nothing : partialCopy(field.v, [j for (i,j) in copyArgs if i == :v]),
+    )
+
+end
+
+## Similar
+function Base.similar(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}, _) where {P, D, S, DT, A, N, E, F, V}
+
+    UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}(
+        field.a === nothing ? nothing : similar(field.a),
+        field.n === nothing ? nothing : similar(field.n),
+        field.e === nothing ? nothing : similar(field.e),
+        field.f === nothing ? nothing : similar(field.f),
+        field.v === nothing ? nothing : similar(field.v),
     )
 
 end
@@ -871,6 +1006,63 @@ end
         copyto!(getfield(dest, :v), getfield(bc, :v))
     end
 
+    dest
+end
+
+## Copyfrom!
+@eval @inline function copyfrom!(
+    dest::UnstructuredMeshObject,
+    bc::UnstructuredMeshObject)
+
+    if getfield(dest, :a) !== nothing && getfield(bc, :a) !== nothing
+        copyfrom!(getfield(dest, :a), getfield(bc, :a))
+    end
+
+    if getfield(dest, :n) !== nothing && getfield(bc, :n) !== nothing
+        copyfrom!(getfield(dest, :n), getfield(bc, :n))
+    end
+
+    if getfield(dest, :e) !== nothing && getfield(bc, :e) !== nothing
+        copyfrom!(getfield(dest, :e), getfield(bc, :e))
+    end
+
+    if getfield(dest, :f) !== nothing && getfield(bc, :f) !== nothing
+        copyfrom!(getfield(dest, :f), getfield(bc, :f))
+    end
+
+    if getfield(dest, :v) !== nothing && getfield(bc, :v) !== nothing
+        copyfrom!(getfield(dest, :v), getfield(bc, :v))
+    end
+
+    dest
+end
+
+## Recursivefill!
+function RecursiveArrayTools.recursivefill!(
+    dest::UnstructuredMeshObject,
+    value)
+
+    if getfield(dest, :a) !== nothing
+        RecursiveArrayTools.recursivefill!(getfield(dest, :a), value)
+    end
+
+    if getfield(dest, :n) !== nothing
+        RecursiveArrayTools.recursivefill!(getfield(dest, :n), value)
+    end
+
+    if getfield(dest, :e) !== nothing
+        RecursiveArrayTools.recursivefill!(getfield(dest, :e), value)
+    end
+
+    if getfield(dest, :f) !== nothing
+        RecursiveArrayTools.recursivefill!(getfield(dest, :f), value)
+    end
+
+    if getfield(dest, :v) !== nothing
+        RecursiveArrayTools.recursivefill!(getfield(dest, :v), value)
+    end
+
+    dest
 end
 
 ## Broadcasting
@@ -907,7 +1099,7 @@ for type in [
 
         d = getfield(dest, :a)
         if d !== nothing
-            np, n = size(d)
+            np, n = sizeFull(d)
             for j in 1:np
                 if !d._pReference[j]
                     # dest_ = @views d._p[j][1:n]
@@ -918,7 +1110,7 @@ for type in [
 
         d = getfield(dest, :n)
         if d !== nothing
-            np, n = size(d)
+            np, n = sizeFull(d)
             for j in 1:np
                 if !d._pReference[j]
                     # dest_ = @views d._p[j][1:n]
@@ -929,7 +1121,7 @@ for type in [
 
         d = getfield(dest, :e)
         if d !== nothing
-            np, n = size(d)
+            np, n = sizeFull(d)
             for j in 1:np
                 if !d._pReference[j]
                     # dest_ = @views d._p[j][1:n]
@@ -940,7 +1132,7 @@ for type in [
 
         d = getfield(dest, :f)
         if d !== nothing
-            np, n = size(d)
+            np, n = sizeFull(d)
             for j in 1:np
                 if !d._pReference[j]
                     # dest_ = @views d._p[j][1:n]
@@ -951,7 +1143,7 @@ for type in [
 
         d = getfield(dest, :v)
         if d !== nothing
-            np, n = size(d)
+            np, n = sizeFull(d)
             for j in 1:np
                 if !d._pReference[j]
                     # dest_ = @views d._p[j][1:n]
