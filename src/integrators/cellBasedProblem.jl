@@ -78,9 +78,9 @@ function DifferentialEquations.init(problem::CBProblem; dt::Real, kwargs...)
         #Override arguments
         args[:save_everystep] = false
         args[:dt] = dt
-        args[:adaptive] = false
-        args[:dtmax] = dt
-        args[:dtmin] = dt
+        # args[:adaptive] = false
+        # args[:dtmax] = dt
+        # args[:dtmin] = dt
         
         if typeof(deproblem) == RuleProblem
             integratorsDict[scope] = DifferentialEquations.init(deproblem; dt=dt)
