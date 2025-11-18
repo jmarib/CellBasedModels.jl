@@ -45,7 +45,6 @@ module CellBasedModels
     # include("./CommunityStructure/abstractTypes.jl")
 
     #Agent
-    #, loopOverAgents, removeAgent!, addAgent!
     include("./AgentStructure/auxiliar.jl")
     export UnstructuredMesh, UnstructuredMeshObjectField, UnstructuredMeshObject
     include("./AgentStructure/unstructuredMesh.jl")
@@ -55,8 +54,8 @@ module CellBasedModels
     include("./AgentStructure/multiMesh.jl")
     # export AgentGlobal
     # include("./AgentStructure/agentGlobal.jl")
-    # export AgentPoint, CommunityPoint
-    # include("./AgentStructure/agentPoint.jl")
+    export AgentPoint, AgentPointObject, addAgent!, iterateAgents
+    include("./AgentStructure/agentPoint.jl")
         #Structure
     # export ABM
     # include("./AgentStructure/abm.jl")

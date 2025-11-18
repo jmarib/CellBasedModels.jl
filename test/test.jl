@@ -11,45 +11,58 @@ import SparseConnectivityTracer, ADTypes
 
 props = (
         a = Parameter(Float64, description="param a", dimensions=:M, defaultValue=1.0),
-        b = Parameter(Int, description="param b", dimensions=:count, defaultValue=0),
+        b = Parameter(Float64, description="param b", dimensions=:count, defaultValue=0.0),
     )
 
-mesh = StructuredMesh(
+mesh = UnstructuredMesh(
     3;
-    propertiesCell  = props,
+    propertiesNode  = props,
 )
 
-@addODE(model=mesh, scope=biochemistry, broadcasting=true,
+@addSDE(model=mesh, scope=biochemistry, broadcasting=true,
+function f!(du, u, p, t)
+
+    du.n.a .= 0
+    du.n.b .= 0
+
+end, 
 function g!(du, u, p, t)
 
-    du.c.a .= u.c.a
+    du.n.a .= 1.0
+    du.n.b .= 1.0
 
 end
 )
 
-meshObject = StructuredMeshObject(
-            mesh,
-            simulationBox=[0 1;0 1;0 1], gridSpacing=[0.1, 0.1, 0.1]
-        )
+meshObject = UnstructuredMeshObject(
+        mesh,
+        nodeN = 5
+    )
 
-detector = SparseConnectivityTracer.TracerSparsityDetector()
-dmeshObject = copy(meshObject)
-jac_sparsity = ADTypes.jacobian_sparsity(
-    (du, u) -> g!(du, u, tuple(), 0.0), dmeshObject, meshObject, detector)
+# detector = SparseConnectivityTracer.TracerSparsityDetector()
+# dmeshObject = copy(meshObject)
+# jac_sparsity = ADTypes.jacobian_sparsity(
+#     (du, u) -> g!(du, u, tuple(), 0.0), dmeshObject, meshObject, detector)
 
-println("Jacobian sparsity pattern:")
-display(jac_sparsity)
+# println("Jacobian sparsity pattern:")
+# display(jac_sparsity)
 
-# problem = CBProblem(
-#     mesh,
-#     meshObject,
-#     (0.0, 1.0),
-# )
-# integrator = init(
-#     problem,
-#     dt=0.1,
-#     biochemistry=Euler()
-# )
+problem = CBProblem(
+    mesh,
+    meshObject,
+    (0.0, 1.0),
+)
+integrator = init(
+    problem,
+    dt=0.1,
+    biochemistry=ImplicitEM()
+)
+
+for i in 1:10
+    step!(integrator)
+    println("Step $i: ", integrator.u.n.a)
+    println("Step $i: ", integrator.u.n.b)
+end
 
 # @btime evolve!(integrator, T)
 

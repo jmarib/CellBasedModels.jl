@@ -135,6 +135,9 @@ function DifferentialEquations.step!(integrator::CBIntegrator)
         end
     end
 
+    # Update mesh (e.g., add/remove agents)
+    CellBasedModels.update!(integrator.u)
+
     # Push results to deintegrators
     for (scope, deintegrator) in pairs(integrator.integrators)
         CellBasedModels.copyfrom!(deintegrator.u, integrator.u)

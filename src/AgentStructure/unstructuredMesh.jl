@@ -42,7 +42,8 @@ function UnstructuredMesh(
     propertiesNode::Union{NamedTuple, Nothing}=nothing,
     propertiesEdge::Union{NamedTuple, Nothing}=nothing,
     propertiesFace::Union{NamedTuple, Nothing}=nothing,
-    propertiesVolume::Union{NamedTuple, Nothing}=nothing
+    propertiesVolume::Union{NamedTuple, Nothing}=nothing,
+    specialization::DataType=Nothing,
 )
 
     if dims < 0 || dims > 3
@@ -73,7 +74,7 @@ function UnstructuredMesh(
         end
     end
 
-    return UnstructuredMesh{dims, Nothing, (typeof(i) for i in properties)...}(
+    return UnstructuredMesh{dims, specialization, (typeof(i) for i in properties)...}(
         properties...,
         Dict{Symbol, Any}()
     )
@@ -765,11 +766,51 @@ function unpack_voa(x::UnstructuredMeshObjectField, i)
     x._p[i]
 end
 
+# update!
+function update!(mesh::UnstructuredMeshObjectField)
+
+    N = mesh._N[]
+    NNew = sum(mesh._NAddedThread)
+
+    # Check for overflow and increase cache
+    if N + NNew > mesh._NCache[]
+        warning("MeshObjectField overflow: current N=$(N), added N=$(NNew), NCache=$(mesh._NCache[]). If this is happening constantly, consider allocating with NCache before the simulation.")
+        for i in 1:mesh._NP
+            append!(mesh._p[i], similar(mesh._p[i], NNew))
+        end
+        mesh._NCache[] += NNew
+    end
+
+    # Add new agents
+    NCum = [0, cumsum(mesh._NAddedThread)...][1:end-1]
+    Threads.@threads for (offset, NThread, field) in zip(NCum, mesh._NAddedThread, mesh._AddedAgents)
+        for i in 1:NThread
+            idx = N + offset + 1
+            agent = field[i]
+            for (name, value) in pairs(agent)
+                mesh._p[name][idx] = value
+            end
+            N += 1
+        end
+    end
+
+    # Remove flagged agents
+
+    # Reset added and removed counters
+    mesh._N[] += NNew 
+    mesh._NAdded[] = 0
+    mesh._NRemoved[] = 0
+    fill!(mesh._NAddedThread, 0)
+    fill!(mesh._NRemovedThread, 0)
+
+    return
+end
+
 ######################################################################################################
 # UnstructuredMeshObject
 ######################################################################################################
 struct UnstructuredMeshObject{
-            P, D, S, DT,
+            P, D, S, DT, NN,
             A, N, E, F, V
     } <: AbstractMeshObject
     a::A
@@ -777,6 +818,7 @@ struct UnstructuredMeshObject{
     e::E
     f::F
     v::V
+    _neighbors::NN
 end
 Adapt.@adapt_structure UnstructuredMeshObject
 
@@ -831,10 +873,10 @@ function UnstructuredMeshObject(
     end
 
     return UnstructuredMeshObject{
-            P, D, S, DT,
+            P, D, S, DT, Nothing,
             (typeof(i) for i in fields)...
         }(
-            fields...
+            fields..., nothing
         )
 end
 
@@ -857,10 +899,10 @@ function UnstructuredMeshObject(
     end
 
     return UnstructuredMeshObject{
-            P, D, S, DT,
+            P, D, S, DT, Nothing,
             typeof(a), typeof(n), typeof(e), typeof(f), typeof(v)
         }(
-            a, n, e, f, v
+            a, n, e, f, v, nothing
         )
 end
 
@@ -906,7 +948,7 @@ function Base.show(io::IO, x::Type{UnstructuredMeshObject{P, D, S}}) where {P, D
     println(io, "}")
 end
 
-function show(io::IO, ::Type{UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V,}}) where {P, D, S, DT, A, N, E, F, V}
+function show(io::IO, ::Type{UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V,}}) where {P, D, S, DT, NN, A, N, E, F, V}
     for (props, propsnames) in zip((A, N, E, F, V), ("a", "PropertiesNode", "PropertiesEdge", "PropertiesFace", "PropertiesVolume"))
         if props !== Nothing
             print(io, "\t", string(propsnames), "Meta", "=(")
@@ -916,7 +958,7 @@ function show(io::IO, ::Type{UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V,}
     end
 end
 
-function lengthProperties(mesh::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}) where {P, D, S, DT, A, N, E, F, V}
+function lengthProperties(mesh::UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}) where {P, D, S, DT, NN, A, N, E, F, V}
     c = 0
     A !== Nothing ? c += 1 : nothing
     N !== Nothing ? c += 1 : nothing
@@ -925,7 +967,7 @@ function lengthProperties(mesh::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, 
     V !== Nothing ? c += 1 : nothing
     return c
 end    
-function Base.length(mesh::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}) where {P, D, S, DT, A, N, E, F, V}
+function Base.length(mesh::UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}) where {P, D, S, DT, NN, A, N, E, F, V}
     c = 0
     A !== Nothing ? c += length(mesh.a) : nothing
     N !== Nothing ? c += length(mesh.n) : nothing
@@ -987,64 +1029,69 @@ function LinearAlgebra.norm(u::UnstructuredMeshObject, t::Real)
 end
 
 ## Copy
-function Base.copy(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}) where {P, D, S, DT, A, N, E, F, V}
+function Base.copy(field::UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}) where {P, D, S, DT, NN, A, N, E, F, V}
 
-    UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}(
+    UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}(
         field.a === nothing ? nothing : copy(field.a),
         field.n === nothing ? nothing : copy(field.n),
         field.e === nothing ? nothing : copy(field.e),
         field.f === nothing ? nothing : copy(field.f),
         field.v === nothing ? nothing : copy(field.v),
+        nothing
     )
 
 end
 
-function partialCopy(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}, copyArgs) where {P, D, S, DT, A, N, E, F, V}
+function partialCopy(field::UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}, copyArgs) where {P, D, S, DT, NN, A, N, E, F, V}
 
-    UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}(
+    UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}(
         field.a === nothing ? nothing : partialCopy(field.a, [j for (i,j) in copyArgs if i == :a]),
         field.n === nothing ? nothing : partialCopy(field.n, [j for (i,j) in copyArgs if i == :n]),
         field.e === nothing ? nothing : partialCopy(field.e, [j for (i,j) in copyArgs if i == :e]),
         field.f === nothing ? nothing : partialCopy(field.f, [j for (i,j) in copyArgs if i == :f]),
         field.v === nothing ? nothing : partialCopy(field.v, [j for (i,j) in copyArgs if i == :v]),
+        nothing
     )
 
 end
 
 ## Similar
-function Base.similar(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}) where {P, D, S, DT, A, N, E, F, V}
+function Base.similar(field::UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}) where {P, D, S, DT, NN, A, N, E, F, V}
 
-    UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}(
+    UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}(
         field.a === nothing ? nothing : similar(field.a),
         field.n === nothing ? nothing : similar(field.n),
         field.e === nothing ? nothing : similar(field.e),
         field.f === nothing ? nothing : similar(field.f),
         field.v === nothing ? nothing : similar(field.v),
+        nothing
     )
 
 end
 
-function Base.similar(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}, _) where {P, D, S, DT, A, N, E, F, V}
+function Base.similar(field::UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}, _) where {P, D, S, DT, NN, A, N, E, F, V}
 
-    UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}(
+    UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}(
         field.a === nothing ? nothing : similar(field.a),
         field.n === nothing ? nothing : similar(field.n),
         field.e === nothing ? nothing : similar(field.e),
         field.f === nothing ? nothing : similar(field.f),
         field.v === nothing ? nothing : similar(field.v),
+        nothing
     )
 
 end
 
 ## Zero
-function Base.zero(field::UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}) where {P, D, S, DT, A, N, E, F, V}
+function Base.zero(field::UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}) where {P, D, S, DT, NN, A, N, E, F, V}
 
-    UnstructuredMeshObject{P, D, S, DT, A, N, E, F, V}(
+    UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}(
         field.a === nothing ? nothing : zero(field.a),
         field.n === nothing ? nothing : zero(field.n),
         field.e === nothing ? nothing : zero(field.e),
         field.f === nothing ? nothing : zero(field.f),
         field.v === nothing ? nothing : zero(field.v),
+        nothing
     )
 
 end
@@ -1320,78 +1367,102 @@ function unpack_voa(x::UnstructuredMeshObject, i, j, n)
     x[i]._p[j]
 end
 
-######################################################################################################
-# ForwardDiff Support
-######################################################################################################
+# update!
+function update!(
+        mesh::UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}
+    ) where {P, D, S, DT, NN, A, N, E, F, V}
 
-# Make UnstructuredMeshObject work with ForwardDiff for automatic differentiation
-# ForwardDiff needs to know how to create chunks and work with our custom array type
-
-# Tell ForwardDiff that our object behaves like an AbstractArray
-ForwardDiff.pickchunksize(x::UnstructuredMeshObject) = ForwardDiff.pickchunksize(length(x))
-
-# ForwardDiff needs to know how to extract values for differentiation
-function ForwardDiff.extract_gradient!(::Type{T}, result, x::UnstructuredMeshObject) where T
-    # This should extract gradients from the ForwardDiff dual numbers
-    # For now, delegate to the default behavior by converting to a regular array representation
-    error("ForwardDiff gradient extraction not implemented for UnstructuredMeshObject")
-end
-
-# Add methods to make UnstructuredMeshObject work with ForwardDiff operations
-Base.vec(x::UnstructuredMeshObject) = vec(collect(Iterators.flatten([
-    getfield(x, :a) !== nothing ? vec(getfield(x, :a)) : Float64[],
-    getfield(x, :n) !== nothing ? vec(getfield(x, :n)) : Float64[],
-    getfield(x, :e) !== nothing ? vec(getfield(x, :e)) : Float64[],
-    getfield(x, :f) !== nothing ? vec(getfield(x, :f)) : Float64[],
-    getfield(x, :v) !== nothing ? vec(getfield(x, :v)) : Float64[]
-])))
-
-# ForwardDiff support for UnstructuredMeshObjectField as well
-ForwardDiff.pickchunksize(x::UnstructuredMeshObjectField) = ForwardDiff.pickchunksize(length(x))
-
-# Add JacobianConfig support for UnstructuredMeshObject
-function ForwardDiff.JacobianConfig(f, y::UnstructuredMeshObject, x::UnstructuredMeshObject, chunk::ForwardDiff.Chunk, tag::ForwardDiff.Tag)
-    # Convert to vectors and use standard JacobianConfig
-    ForwardDiff.JacobianConfig(f, vec(y), vec(x), chunk, tag)
-end
-
-function ForwardDiff.JacobianConfig(::Nothing, y::UnstructuredMeshObject, x::UnstructuredMeshObject, chunk::ForwardDiff.Chunk, tag::ForwardDiff.Tag)
-    # Handle case where function is Nothing
-    ForwardDiff.JacobianConfig(nothing, vec(y), vec(x), chunk, tag)
-end
-
-# Add ForwardDiff.Chunk support for UnstructuredMeshObject
-ForwardDiff.pickchunksize(x::UnstructuredMeshObject) = ForwardDiff.pickchunksize(length(x))
-
-# Provide ForwardDiff.Chunk constructor for our type by converting to array-like representation
-function ForwardDiff.Chunk(x::UnstructuredMeshObject)
-    return ForwardDiff.Chunk(length(x))
-end
-
-# Make UnstructuredMeshObject work with ForwardDiff chunking
-# Instead of conflicting getindex, just ensure length() works properly for ForwardDiff
-
-# Implement jacobian! method in the proper OrdinaryDiffEqDifferentiation context
-# The error shows it's looking for: jacobian!(::AbstractMatrix{<:Number}, ::F, ::AbstractArray{<:Number}, ::AbstractArray{<:Number}, ::SciMLBase.DEIntegrator, ::Any)
-function OrdinaryDiffEqDifferentiation.jacobian!(J::AbstractMatrix{<:Number}, f, x::UnstructuredMeshObject, fx::UnstructuredMeshObject, integrator, jac_config)
-    # Use finite differences as a simple placeholder for now
-    # In a full implementation, you would compute the actual Jacobian here
-    fill!(J, 0.0)
-    n = min(size(J, 1), size(J, 2))
-    for i in 1:n
-        J[i, i] = 1.0  # Identity matrix for numerical stability
+    if getfield(mesh, :a) !== nothing
+        update!(getfield(mesh, :a))
     end
-    return J
+    if getfield(mesh, :n) !== nothing
+        update!(getfield(mesh, :n))
+    end
+    if getfield(mesh, :e) !== nothing
+        update!(getfield(mesh, :e))
+    end
+    if getfield(mesh, :f) !== nothing
+        update!(getfield(mesh, :f))
+    end
+    if getfield(mesh, :v) !== nothing
+        update!(getfield(mesh, :v))
+    end
+
+    mesh
 end
 
-# Fallback method for when OrdinaryDiffEqDifferentiation is not loaded
-if !@isdefined(OrdinaryDiffEqDifferentiation)
-    function jacobian!(J::AbstractMatrix{<:Number}, f, x::UnstructuredMeshObject, fx::UnstructuredMeshObject, integrator, jac_config)
-        fill!(J, 0.0)
-        n = min(size(J, 1), size(J, 2))
-        for i in 1:n
-            J[i, i] = 1.0
-        end
-        return J
-    end
-end
+# ######################################################################################################
+# # ForwardDiff Support
+# ######################################################################################################
+
+# # Make UnstructuredMeshObject work with ForwardDiff for automatic differentiation
+# # ForwardDiff needs to know how to create chunks and work with our custom array type
+
+# # Tell ForwardDiff that our object behaves like an AbstractArray
+# ForwardDiff.pickchunksize(x::UnstructuredMeshObject) = ForwardDiff.pickchunksize(length(x))
+
+# # ForwardDiff needs to know how to extract values for differentiation
+# function ForwardDiff.extract_gradient!(::Type{T}, result, x::UnstructuredMeshObject) where T
+#     # This should extract gradients from the ForwardDiff dual numbers
+#     # For now, delegate to the default behavior by converting to a regular array representation
+#     error("ForwardDiff gradient extraction not implemented for UnstructuredMeshObject")
+# end
+
+# # Add methods to make UnstructuredMeshObject work with ForwardDiff operations
+# Base.vec(x::UnstructuredMeshObject) = vec(collect(Iterators.flatten([
+#     getfield(x, :a) !== nothing ? vec(getfield(x, :a)) : Float64[],
+#     getfield(x, :n) !== nothing ? vec(getfield(x, :n)) : Float64[],
+#     getfield(x, :e) !== nothing ? vec(getfield(x, :e)) : Float64[],
+#     getfield(x, :f) !== nothing ? vec(getfield(x, :f)) : Float64[],
+#     getfield(x, :v) !== nothing ? vec(getfield(x, :v)) : Float64[]
+# ])))
+
+# # ForwardDiff support for UnstructuredMeshObjectField as well
+# ForwardDiff.pickchunksize(x::UnstructuredMeshObjectField) = ForwardDiff.pickchunksize(length(x))
+
+# # Add JacobianConfig support for UnstructuredMeshObject
+# function ForwardDiff.JacobianConfig(f, y::UnstructuredMeshObject, x::UnstructuredMeshObject, chunk::ForwardDiff.Chunk, tag::ForwardDiff.Tag)
+#     # Convert to vectors and use standard JacobianConfig
+#     ForwardDiff.JacobianConfig(f, vec(y), vec(x), chunk, tag)
+# end
+
+# function ForwardDiff.JacobianConfig(::Nothing, y::UnstructuredMeshObject, x::UnstructuredMeshObject, chunk::ForwardDiff.Chunk, tag::ForwardDiff.Tag)
+#     # Handle case where function is Nothing
+#     ForwardDiff.JacobianConfig(nothing, vec(y), vec(x), chunk, tag)
+# end
+
+# # Add ForwardDiff.Chunk support for UnstructuredMeshObject
+# ForwardDiff.pickchunksize(x::UnstructuredMeshObject) = ForwardDiff.pickchunksize(length(x))
+
+# # Provide ForwardDiff.Chunk constructor for our type by converting to array-like representation
+# function ForwardDiff.Chunk(x::UnstructuredMeshObject)
+#     return ForwardDiff.Chunk(length(x))
+# end
+
+# # Make UnstructuredMeshObject work with ForwardDiff chunking
+# # Instead of conflicting getindex, just ensure length() works properly for ForwardDiff
+
+# # Implement jacobian! method in the proper OrdinaryDiffEqDifferentiation context
+# # The error shows it's looking for: jacobian!(::AbstractMatrix{<:Number}, ::F, ::AbstractArray{<:Number}, ::AbstractArray{<:Number}, ::SciMLBase.DEIntegrator, ::Any)
+# function OrdinaryDiffEqDifferentiation.jacobian!(J::AbstractMatrix{<:Number}, f, x::UnstructuredMeshObject, fx::UnstructuredMeshObject, integrator, jac_config)
+#     # Use finite differences as a simple placeholder for now
+#     # In a full implementation, you would compute the actual Jacobian here
+#     fill!(J, 0.0)
+#     n = min(size(J, 1), size(J, 2))
+#     for i in 1:n
+#         J[i, i] = 1.0  # Identity matrix for numerical stability
+#     end
+#     return J
+# end
+
+# # Fallback method for when OrdinaryDiffEqDifferentiation is not loaded
+# if !@isdefined(OrdinaryDiffEqDifferentiation)
+#     function jacobian!(J::AbstractMatrix{<:Number}, f, x::UnstructuredMeshObject, fx::UnstructuredMeshObject, integrator, jac_config)
+#         fill!(J, 0.0)
+#         n = min(size(J, 1), size(J, 2))
+#         for i in 1:n
+#             J[i, i] = 1.0
+#         end
+#         return J
+#     end
+# end
