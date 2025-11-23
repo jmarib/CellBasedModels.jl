@@ -47,16 +47,17 @@ module CellBasedModels
 
     #Agent
     include("./AgentStructure/auxiliar.jl")
-    export UnstructuredMesh, UnstructuredMeshObjectField, UnstructuredMeshObject
+    export Node, Edge, Face, Volume, Agent
+    export UnstructuredMesh, UnstructuredMeshField, UnstructuredMeshObject
     include("./AgentStructure/unstructuredMesh.jl")
-    export StructuredMesh, StructuredMeshObject
-    include("./AgentStructure/structuredMesh.jl")
-    export MultiMesh, MultiMeshObject
-    include("./AgentStructure/multiMesh.jl")
+    # export StructuredMesh, StructuredMeshObject
+    # include("./AgentStructure/structuredMesh.jl")
+    # export MultiMesh, MultiMeshObject
+    # include("./AgentStructure/multiMesh.jl")
     # export AgentGlobal
     # include("./AgentStructure/agentGlobal.jl")
-    export AgentPoint, AgentPointObject, addAgent!, iterateAgents
-    include("./AgentStructure/agentPoint.jl")
+    # export AgentPoint, AgentPointObject, addAgent!, iterateAgents
+    # include("./AgentStructure/agentPoint.jl")
         #Structure
     # export ABM
     # include("./AgentStructure/abm.jl")

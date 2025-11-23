@@ -1,37 +1,37 @@
 import CellBasedModels: DATATYPE
 import CellBasedModels: lengthCache, lengthProperties, sizeFull, sizeFullCache, nCopyProperties
-import CellBasedModels: UnstructuredMeshObjectField, UnstructuredMeshObjectFieldStyle, UnstructuredMeshObject, UnstructuredMeshObjectStyle, unpack_voa
+import CellBasedModels: UnstructuredMeshField, UnstructuredMeshFieldStyle, UnstructuredMeshObject, UnstructuredMeshObjectStyle, unpack_voa
 import CellBasedModels: toCPU, toGPU, CPU, CPUSinglethread, CPUMultithreading
 
-lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._NCache[1]
-lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._NCache[1]
-lengthProperties(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._N[1]
-lengthProperties(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._N[1]
-Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = nCopyProperties(field) * CUDA.@allowscalar field._N[1]
-Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = nCopyProperties(field) * field._N[1]
+lengthCache(field::UnstructuredMeshField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._NCache[1]
+lengthCache(field::UnstructuredMeshField{P}) where {P<:GPUCuDevice} = field._NCache[1]
+lengthProperties(field::UnstructuredMeshField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._N[1]
+lengthProperties(field::UnstructuredMeshField{P}) where {P<:GPUCuDevice} = field._N[1]
+Base.length(field::UnstructuredMeshField{P}) where {P<:GPUCuda} = nCopyProperties(field) * CUDA.@allowscalar field._N[1]
+Base.length(field::UnstructuredMeshField{P}) where {P<:GPUCuDevice} = nCopyProperties(field) * field._N[1]
 
-sizeFull(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = (field._NP, CUDA.@allowscalar field._N[1])
-sizeFull(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = (field._NP, field._N[1])
-sizeFullCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = (field._NP, CUDA.@allowscalar field._NCache[1])
-sizeFullCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = (field._NP, field._NCache[1])
-Base.size(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = (nCopyProperties(field), lengthProperties(field))
-Base.size(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = (nCopyProperties(field), lengthProperties(field))
+sizeFull(field::UnstructuredMeshField{P}) where {P<:GPUCuda} = (field._NP, CUDA.@allowscalar field._N[1])
+sizeFull(field::UnstructuredMeshField{P}) where {P<:GPUCuDevice} = (field._NP, field._N[1])
+sizeFullCache(field::UnstructuredMeshField{P}) where {P<:GPUCuda} = (field._NP, CUDA.@allowscalar field._NCache[1])
+sizeFullCache(field::UnstructuredMeshField{P}) where {P<:GPUCuDevice} = (field._NP, field._NCache[1])
+Base.size(field::UnstructuredMeshField{P}) where {P<:GPUCuda} = (nCopyProperties(field), lengthProperties(field))
+Base.size(field::UnstructuredMeshField{P}) where {P<:GPUCuDevice} = (nCopyProperties(field), lengthProperties(field))
 
-# Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._N[1]
-# Base.length(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._N[1]
-# lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._NCache[1]
-# lengthCache(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuDevice} = field._NCache[1]
+# Base.length(field::UnstructuredMeshField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._N[1]
+# Base.length(field::UnstructuredMeshField{P}) where {P<:GPUCuDevice} = field._N[1]
+# lengthCache(field::UnstructuredMeshField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._NCache[1]
+# lengthCache(field::UnstructuredMeshField{P}) where {P<:GPUCuDevice} = field._NCache[1]
 
 ########################################################################################
 # broadcasting support
 ########################################################################################
 for type in [
-        Broadcast.Broadcasted{<:UnstructuredMeshObjectField},
-        Broadcast.Broadcasted{<:UnstructuredMeshObjectFieldStyle},
+        Broadcast.Broadcasted{<:UnstructuredMeshField},
+        Broadcast.Broadcasted{<:UnstructuredMeshFieldStyle},
     ]
 
     @eval @inline function Base.copyto!(
-            dest::UnstructuredMeshObjectField{P, DT, PR, PRN, PRC},
+            dest::UnstructuredMeshField{P, DT, PR, PRN, PRC},
             bc::$type) where {P<:Union{GPUCuda, GPUCuDevice}, DT, PR, PRN, PRC}
         bc = Broadcast.flatten(bc)
         N = lengthProperties(dest)
@@ -45,7 +45,7 @@ for type in [
     end
 end
 
-function unpack_voa(x::UnstructuredMeshObjectField{P}, i) where {P<:Union{GPUCuda, GPUCuDevice}}
+function unpack_voa(x::UnstructuredMeshField{P}, i) where {P<:Union{GPUCuda, GPUCuDevice}}
     @views x._p[i][1:lengthProperties(x)]
 end
 
@@ -59,57 +59,15 @@ for type in [
             bc::$type) where {P<:Union{GPUCuda, GPUCuDevice}, A, N, E, F, V}
         bc = Broadcast.flatten(bc)
 
-        d = getfield(dest, :a)
-        if d !== nothing
-            np, n = sizeFull(d)
-            for j in 1:np
-                if !d._pReference[j]
-                    dest_ = @views d._p[j][1:n]
-                    dest_ .= unpack_voa(bc, :a, j, n)
-                end
-            end
-        end
-
-        d = getfield(dest, :n)
-        if d !== nothing
-            np, n = sizeFull(d)
-            for j in 1:np
-                if !d._pReference[j]
-                    dest_ = @views d._p[j][1:n]
-                    dest_ .= unpack_voa(bc, :n, j, n)
-                end
-            end
-        end
-
-        d = getfield(dest, :e)
-        if d !== nothing
-            np, n = sizeFull(d)
-            for j in 1:np
-                if !d._pReference[j]
-                    dest_ = @views d._p[j][1:n]
-                    dest_ .= unpack_voa(bc, :e, j, n)
-                end
-            end
-        end
-
-        d = getfield(dest, :f)
-        if d !== nothing
-            np, n = sizeFull(d)
-            for j in 1:np
-                if !d._pReference[j]
-                    dest_ = @views d._p[j][1:n]
-                    dest_ .= unpack_voa(bc, :f, j, n)
-                end
-            end
-        end
-
-        d = getfield(dest, :v)
-        if d !== nothing
-            np, n = sizeFull(d)
-            for j in 1:np
-                if !d._pReference[j]
-                    dest_ = @views d._p[j][1:n]
-                    dest_ .= unpack_voa(bc, :v, j, n)
+        for name in keys(dest._p)
+            d = getfield(dest._p, name)
+            if d !== nothing
+                np, n = sizeFull(d)
+                for j in 1:np
+                    if !d._pReference[j]
+                        dest_ = @views d._p[j][1:n]
+                        dest_ .= unpack_voa(bc, name, j, n)
+                    end
                 end
             end
         end
@@ -121,14 +79,14 @@ function unpack_voa(x::UnstructuredMeshObject{P}, i, j, n) where {P<:Union{GPUCu
     # x[i]._p[j]
 end
 
-########################################################################################
-# to CPU / to GPU conversions
-########################################################################################
-toCPU(field::UnstructuredMeshObjectField{P}) where {P<:CPU} = field
-toGPU(field::UnstructuredMeshObjectField{P}) where {P<:GPU} = field
+# ########################################################################################
+# # to CPU / to GPU conversions
+# ########################################################################################
+toCPU(field::UnstructuredMeshField{P}) where {P<:CPU} = field
+toGPU(field::UnstructuredMeshField{P}) where {P<:GPU} = field
 
-function toCPU(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda}
-    UnstructuredMeshObjectField(
+function toCPU(field::UnstructuredMeshField{P}) where {P<:GPUCuda}
+    UnstructuredMeshField(
         field._p              === nothing ? nothing : Adapt.adapt(Array, field._p),
         field._NP             === nothing ? nothing : field._NP,
         field._pReference     === nothing ? nothing : SizedVector{field._NP, Bool}([field._pReference...]),
@@ -146,8 +104,8 @@ function toCPU(field::UnstructuredMeshObjectField{P}) where {P<:GPUCuda}
     )
 end
 
-function toGPU(field::UnstructuredMeshObjectField{P}) where {P<:CPU}
-    UnstructuredMeshObjectField(
+function toGPU(field::UnstructuredMeshField{P}) where {P<:CPU}
+    UnstructuredMeshField(
         field._p              === nothing ? nothing : Adapt.adapt(CUDA.CuArray, field._p),
         field._NP             === nothing ? nothing : field._NP,
         field._pReference     === nothing ? nothing : tuple(field._pReference...),
@@ -168,54 +126,38 @@ end
 toCPU(mesh::UnstructuredMeshObject{D, P}) where {D, P<:CPU} = mesh
 toGPU(mesh::UnstructuredMeshObject{D, P}) where {D, P<:GPUCuda} = mesh
 
-function toCPU(field::UnstructuredMeshObject{P, D, S, DT}) where {P<:GPUCuda, D, S, DT}
+function toCPU(field::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P<:GPUCuda, D, S, DT, NN, PAR}
 
     PNew = platform()
     DTNew = DT <: AbstractFloat ? DATATYPE[AbstractFloat] : DT
 
-    a = field.a === nothing ? nothing : toCPU(field.a)
-    n = field.n === nothing ? nothing : toCPU(field.n)
-    e = field.e === nothing ? nothing : toCPU(field.e)
-    f = field.f === nothing ? nothing : toCPU(field.f)
-    v = field.v === nothing ? nothing : toCPU(field.v)
+    p = NamedTuple{keys(field._p)}(
+        toCPU(p) for p in values(field._p)
+    )
+    # n = toCPU(field.neighbors)
 
-    A = typeof(a)
-    N = typeof(n)
-    E = typeof(e)
-    F = typeof(f)
-    V = typeof(v)
+    PARNew = typeof(p)
 
-    UnstructuredMeshObject{PNew, D, S, DTNew, A, N, E, F, V}(
-        a,
-        n,
-        e,
-        f,
-        v,
+    UnstructuredMeshObject{PNew, D, S, DTNew, NN, PARNew}(
+        p,
+        nothing
     )
 end
 
-function toGPU(field::UnstructuredMeshObject{P, D, S, DT}) where {P<:CPU, D, S, DT}
+function toGPU(field::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P<:CPU, D, S, DT, NN, PAR}
 
     PNew = GPUCuda
     DTNew = DT <: AbstractFloat ? Float32 : DT
 
-    a = field.a === nothing ? nothing : toGPU(field.a)
-    n = field.n === nothing ? nothing : toGPU(field.n)
-    e = field.e === nothing ? nothing : toGPU(field.e)
-    f = field.f === nothing ? nothing : toGPU(field.f)
-    v = field.v === nothing ? nothing : toGPU(field.v)
+    p = NamedTuple{keys(field._p)}(
+        toGPU(p) for p in values(field._p)
+    )
+    # n = toGPU(field.neighbors)
 
-    A = typeof(a)
-    N = typeof(n)
-    E = typeof(e)
-    F = typeof(f)
-    V = typeof(v)
+    PARNew = typeof(p)
 
-    UnstructuredMeshObject{PNew, D, S, DTNew, A, N, E, F, V}(
-        a,
-        n,
-        e,
-        f,
-        v,
+    UnstructuredMeshObject{PNew, D, S, DTNew, NN, PARNew}(
+        p,
+        nothing
     )
 end

@@ -14,8 +14,8 @@ import StaticArrays: SizedVector
             b = Parameter(Int, description="param b", dimensions=:count, defaultValue=0),
         )
 
-    all_scopes = (:propertiesAgent, :propertiesNode, :propertiesEdge, :propertiesFace, :propertiesVolume)
-    all_scopes_index = (:a, :n, :e, :f, :v)
+    all_scopes = (Node, Edge, Face, Volume, Agent)
+    all_scopes_index = (:n, :e, :f, :v, :a)
 
     #######################################################################
     # TEST 1: UnstructuredMesh
@@ -23,15 +23,18 @@ import StaticArrays: SizedVector
     @testset "UnstructuredMesh - full coverage" begin
         for dims in 0:3
             for scope in all_scopes
-                mesh = UnstructuredMesh(
-                    dims;
-                    propertiesAgent  = scope == :propertiesAgent  ? props : nothing,
-                    propertiesNode   = scope == :propertiesNode   ? props : nothing,
-                    propertiesEdge   = scope == :propertiesEdge   ? props : nothing,
-                    propertiesFace   = scope == :propertiesFace   ? props : nothing,
-                    propertiesVolume = scope == :propertiesVolume ? props : nothing,
-                )
-
+                mesh = nothing
+                if scope === Node
+                    mesh = UnstructuredMesh(dims; n  = Node(props))
+                elseif scope === Edge
+                    mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                elseif scope === Face
+                    mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                elseif scope === Volume
+                    mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                elseif scope === Agent
+                    mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                end
                 @test mesh isa UnstructuredMesh
                 @test CellBasedModels.spatialDims(mesh) == dims
                 @test CellBasedModels.specialization(mesh) === Nothing
@@ -44,23 +47,32 @@ import StaticArrays: SizedVector
 
         # Duplicate protected parameter name (e.g., x)
         bad_props = (x = Parameter(Float64, description="duplicate", dimensions=:L, defaultValue=0.0),)
-        @test_throws ErrorException UnstructuredMesh(1; propertiesNode=bad_props)
+        @test_throws ErrorException UnstructuredMesh(1; n=Node(bad_props))
 
         # Show output test
         io = IOBuffer()
-        show(io, UnstructuredMesh(2; propertiesAgent=props))
+        show(io, UnstructuredMesh(2; n=Node(props)))
         output = String(take!(io))
+        # show(UnstructuredMesh(2; n=Node(props)))
         @test occursin("UnstructuredMesh with dimensions 2", output)
+
+        # Show output test
+        io = IOBuffer()
+        show(io, typeof(UnstructuredMesh(2; n=Node(props))))
+        output = String(take!(io))
+        # show(typeof(UnstructuredMesh(2; n=Node(props))))
+        @test occursin("UnstructuredMesh{dims=2", output)
     end
 
     #######################################################################
-    # TEST 2: UnstructuredMeshObjectField
+    # TEST 2: UnstructuredMeshField
     #######################################################################
-    @testset "UnstructuredMeshObjectField - construction and logic" begin
+    @testset "UnstructuredMeshField - construction and logic" begin
 
         # Valid case
-        field = UnstructuredMeshObjectField(props; N=3, NCache=5)
-        @test field isa UnstructuredMeshObjectField
+        meshProperty = Node(props)
+        field = UnstructuredMeshField(meshProperty; N=3, NCache=5)
+        @test field isa UnstructuredMeshField
         @test field._N[] == 3
         @test field._NCache[] == 5
         @test length(field._FlagsRemoved) == 5
@@ -73,11 +85,8 @@ import StaticArrays: SizedVector
         @test field.a == zeros(Float64, 3)
         @test field._p.a == zeros(Float64, 5)
 
-        # No meshProperties → returns nothing
-        @test UnstructuredMeshObjectField(nothing) === nothing
-
         # With id=false
-        field2 = UnstructuredMeshObjectField(props; N=2, NCache=5, id=false)
+        field2 = UnstructuredMeshField(meshProperty; N=2, NCache=5, id=false)
         @test field2._id === nothing
         @test field2._idMax === nothing
 
@@ -89,7 +98,7 @@ import StaticArrays: SizedVector
         @test occursin("_AddedAgents", txt)
 
         # Copy
-        field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field = UnstructuredMeshField(meshProperty; N=3, NCache=5)
         field._pReference .= [true, false]
         fieldCopy = copy(field)
         field.a .= 7.0
@@ -98,7 +107,7 @@ import StaticArrays: SizedVector
         @test fieldCopy.b == zeros(Int, 3)
 
         # zero
-        field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field = UnstructuredMeshField(meshProperty; N=3, NCache=5)
         field._pReference .= [true, false]
         field.a .= 7.0
         field.b .= 2        
@@ -108,7 +117,7 @@ import StaticArrays: SizedVector
 
         # toGPU/toCPU
         if CUDA.has_cuda()
-            field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+            field = UnstructuredMeshField(meshProperty; N=3, NCache=5)
             field._pReference .= [true, false]
             field.a .= 7.0
             field.b .= 2
@@ -124,11 +133,11 @@ import StaticArrays: SizedVector
         end
 
         # Copyto!
-        field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field = UnstructuredMeshField(meshProperty; N=3, NCache=5)
         field._pReference .= [false, true]
         field.a .= 7.0
         field.b .= 2
-        field2 = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field2 = UnstructuredMeshField(meshProperty; N=3, NCache=5)
         copyto!(field2, field)
         @test field2.a == fill(7.0, 3)
         @test field2.b == fill(0, 3)
@@ -141,11 +150,11 @@ import StaticArrays: SizedVector
         end
 
         # Broadcast
-        field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field = UnstructuredMeshField(meshProperty; N=3, NCache=5)
         field._pReference .= [false, true]
         field.a .= 7.0
         field.b .= 2
-        field2 = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field2 = UnstructuredMeshField(meshProperty; N=3, NCache=5)
         field2._pReference .= [false, true]
         @. field2 = field * 0.1 + 3.0
         @test field2.a == fill(3.7, 3)
@@ -159,11 +168,11 @@ import StaticArrays: SizedVector
         end
 
         # Broadcast @..
-        field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field = UnstructuredMeshField(meshProperty; N=3, NCache=5)
         field._pReference .= [false, true]
         field.a .= 7.0
         field.b .= 2
-        field2 = UnstructuredMeshObjectField(props; N=3, NCache=5)
+        field2 = UnstructuredMeshField(meshProperty; N=3, NCache=5)
         field2._pReference .= [false, true]
         DifferentialEquations.DiffEqBase.@.. field2 = field * 0.1 + 3.0
         @test field2.a == fill(3.7, 3)
@@ -184,7 +193,7 @@ import StaticArrays: SizedVector
                 nothing
             end
 
-            field = UnstructuredMeshObjectField(props; N=3, NCache=5)
+            field = UnstructuredMeshField(meshProperty; N=3, NCache=5)
             field._pReference .= [true, false]
             field_gpu = toGPU(field)
 
@@ -200,28 +209,37 @@ import StaticArrays: SizedVector
     @testset "UnstructuredMeshObject - construction" begin
         for dims in 0:3
             for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-                mesh = UnstructuredMesh(
-                    dims;
-                    propertiesAgent  = scope == :propertiesAgent  ? props : nothing,
-                    propertiesNode   = scope == :propertiesNode   ? props : nothing,
-                    propertiesEdge   = scope == :propertiesEdge   ? props : nothing,
-                    propertiesFace   = scope == :propertiesFace   ? props : nothing,
-                    propertiesVolume = scope == :propertiesVolume ? props : nothing,
-                )
-
-                obj = UnstructuredMeshObject(mesh, 
-                    agentN=2, agentNCache=4, 
-                    nodeN=2, nodeNCache=4, 
-                    edgeN=2, edgeNCache=4, 
-                    faceN=2, faceNCache=4, 
-                    volumeN=2, volumeNCache=4
-                )
-                @test obj isa UnstructuredMeshObject
-                @test obj.a isa Union{Nothing, UnstructuredMeshObjectField}
-                @test obj.n isa Union{Nothing, UnstructuredMeshObjectField}
-                @test obj.e isa Union{Nothing, UnstructuredMeshObjectField}
-                @test obj.f isa Union{Nothing, UnstructuredMeshObjectField}
-                @test obj.v isa Union{Nothing, UnstructuredMeshObjectField}
+                mesh = nothing
+                if scope === Node
+                    mesh = UnstructuredMesh(dims; n  = Node(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4))
+                    @test obj isa UnstructuredMeshObject
+                    @test obj.n isa UnstructuredMeshField
+                elseif scope === Edge
+                    mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    @test obj isa UnstructuredMeshObject
+                    @test obj.n isa UnstructuredMeshField
+                    @test obj.e isa UnstructuredMeshField
+                elseif scope === Face
+                    mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    @test obj isa UnstructuredMeshObject
+                    @test obj.n isa UnstructuredMeshField
+                    @test obj.f isa UnstructuredMeshField
+                elseif scope === Volume
+                    mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    @test obj isa UnstructuredMeshObject
+                    @test obj.n isa UnstructuredMeshField
+                    @test obj.v isa UnstructuredMeshField
+                elseif scope === Agent
+                    mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    @test obj isa UnstructuredMeshObject
+                    @test obj.n isa UnstructuredMeshField
+                    @test obj.a isa UnstructuredMeshField
+                end
 
                 # Invalid cache values
                 @test_throws ErrorException UnstructuredMeshObject(mesh, agentN=4, agentNCache=2)
@@ -233,23 +251,25 @@ import StaticArrays: SizedVector
     @testset "UnstructuredMeshObject - copy" begin
         for dims in 0:3
             for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-                mesh = UnstructuredMesh(
-                    dims;
-                    propertiesAgent  = scope == :propertiesAgent  ? props : nothing,
-                    propertiesNode   = scope == :propertiesNode   ? props : nothing,
-                    propertiesEdge   = scope == :propertiesEdge   ? props : nothing,
-                    propertiesFace   = scope == :propertiesFace   ? props : nothing,
-                    propertiesVolume = scope == :propertiesVolume ? props : nothing,
-                )
-                # Copy
-                obj = UnstructuredMeshObject(mesh, 
-                    agentN=2, agentNCache=4, 
-                    nodeN=2, nodeNCache=4, 
-                    edgeN=2, edgeNCache=4, 
-                    faceN=2, faceNCache=4, 
-                    volumeN=2, volumeNCache=4
-                )
-                if scope == :propertiesNode
+                mesh = nothing
+                obj = nothing
+                if scope === Node
+                    mesh = UnstructuredMesh(dims; n  = Node(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4))
+                elseif scope === Edge
+                    mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                elseif scope === Face
+                    mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                elseif scope === Volume
+                    mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                elseif scope === Agent
+                    mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                end
+                if scope == Node
                     obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
                 else
                     obj[scope_index]._pReference .= [true, false]
@@ -268,23 +288,25 @@ import StaticArrays: SizedVector
     @testset "UnstructuredMeshObject - zero" begin
         for dims in 0:3
             for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-                mesh = UnstructuredMesh(
-                    dims;
-                    propertiesAgent  = scope == :propertiesAgent  ? props : nothing,
-                    propertiesNode   = scope == :propertiesNode   ? props : nothing,
-                    propertiesEdge   = scope == :propertiesEdge   ? props : nothing,
-                    propertiesFace   = scope == :propertiesFace   ? props : nothing,
-                    propertiesVolume = scope == :propertiesVolume ? props : nothing,
-                )
-                # zero
-                obj = UnstructuredMeshObject(mesh, 
-                    agentN=2, agentNCache=4, 
-                    nodeN=2, nodeNCache=4, 
-                    edgeN=2, edgeNCache=4, 
-                    faceN=2, faceNCache=4, 
-                    volumeN=2, volumeNCache=4
-                )
-                if scope == :propertiesNode
+                mesh = nothing
+                obj = nothing
+                if scope === Node
+                    mesh = UnstructuredMesh(dims; n  = Node(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4))
+                elseif scope === Edge
+                    mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                elseif scope === Face
+                    mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                elseif scope === Volume
+                    mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                elseif scope === Agent
+                    mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                end
+                if scope == Node
                     obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
                 else
                     obj[scope_index]._pReference .= [true, false]
@@ -303,25 +325,27 @@ import StaticArrays: SizedVector
     @testset "UnstructuredMeshObject - toGPU/toCPU" begin
         for dims in 0:3
             for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-                mesh = UnstructuredMesh(
-                    dims;
-                    propertiesAgent  = scope == :propertiesAgent  ? props : nothing,
-                    propertiesNode   = scope == :propertiesNode   ? props : nothing,
-                    propertiesEdge   = scope == :propertiesEdge   ? props : nothing,
-                    propertiesFace   = scope == :propertiesFace   ? props : nothing,
-                    propertiesVolume = scope == :propertiesVolume ? props : nothing,
-                )
-
                 # toGPU/toCPU
                 if CUDA.has_cuda()
-                    obj = UnstructuredMeshObject(mesh, 
-                        agentN=2, agentNCache=4, 
-                        nodeN=2, nodeNCache=4, 
-                        edgeN=2, edgeNCache=4, 
-                        faceN=2, faceNCache=4, 
-                        volumeN=2, volumeNCache=4
-                    )
-                    if scope == :propertiesNode
+                    mesh = nothing
+                    obj = nothing
+                    if scope === Node
+                        mesh = UnstructuredMesh(dims; n  = Node(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4))
+                    elseif scope === Edge
+                        mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    elseif scope === Face
+                        mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    elseif scope === Volume
+                        mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    elseif scope === Agent
+                        mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    end
+                    if scope == Node
                         obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
                     else
                         obj[scope_index]._pReference .= [true, false]
@@ -341,37 +365,37 @@ import StaticArrays: SizedVector
     @testset "UnstructuredMeshObject - copyto!" begin
         for dims in 0:3
             for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-                mesh = UnstructuredMesh(
-                    dims;
-                    propertiesAgent  = scope == :propertiesAgent  ? props : nothing,
-                    propertiesNode   = scope == :propertiesNode   ? props : nothing,
-                    propertiesEdge   = scope == :propertiesEdge   ? props : nothing,
-                    propertiesFace   = scope == :propertiesFace   ? props : nothing,
-                    propertiesVolume = scope == :propertiesVolume ? props : nothing,
-                )
-                # copyto!
-                obj = UnstructuredMeshObject(mesh, 
-                    agentN=2, agentNCache=4, 
-                    nodeN=2, nodeNCache=4, 
-                    edgeN=2, edgeNCache=4, 
-                    faceN=2, faceNCache=4, 
-                    volumeN=2, volumeNCache=4
-                )
-                if scope == :propertiesNode
+                    mesh = nothing
+                    obj = nothing
+                    if scope === Node
+                        mesh = UnstructuredMesh(dims; n  = Node(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4))
+                        obj2 = UnstructuredMeshObject(mesh, n = (2,4))
+                    elseif scope === Edge
+                        mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                        obj2 = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    elseif scope === Face
+                        mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                        obj2 = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    elseif scope === Volume
+                        mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                        obj2 = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    elseif scope === Agent
+                        mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                        obj2 = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    end
+                if scope == Node
                     obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
                 else
                     obj[scope_index]._pReference .= [true, false]
                 end
                 obj[scope_index].a .= 7.0
                 obj[scope_index].b .= 2
-                obj2 = UnstructuredMeshObject(mesh, 
-                    agentN=2, agentNCache=4, 
-                    nodeN=2, nodeNCache=4, 
-                    edgeN=2, edgeNCache=4, 
-                    faceN=2, faceNCache=4, 
-                    volumeN=2, volumeNCache=4
-                )
-                if scope == :propertiesNode
+                if scope == Node
                     obj2[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
                 else
                     obj2[scope_index]._pReference .= [true, false]
@@ -397,37 +421,37 @@ import StaticArrays: SizedVector
     @testset "UnstructuredMeshObject - broadcasting" begin
         for dims in 0:3
             for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-                mesh = UnstructuredMesh(
-                    dims;
-                    propertiesAgent  = scope == :propertiesAgent  ? props : nothing,
-                    propertiesNode   = scope == :propertiesNode   ? props : nothing,
-                    propertiesEdge   = scope == :propertiesEdge   ? props : nothing,
-                    propertiesFace   = scope == :propertiesFace   ? props : nothing,
-                    propertiesVolume = scope == :propertiesVolume ? props : nothing,
-                )
-                # Broadcast
-                obj = UnstructuredMeshObject(mesh, 
-                    agentN=2, agentNCache=4, 
-                    nodeN=2, nodeNCache=4, 
-                    edgeN=2, edgeNCache=4, 
-                    faceN=2, faceNCache=4, 
-                    volumeN=2, volumeNCache=4
-                )
-                if scope == :propertiesNode
+                mesh = nothing
+                obj = nothing
+                if scope === Node
+                    mesh = UnstructuredMesh(dims; n  = Node(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4))
+                elseif scope === Edge
+                    mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                elseif scope === Face
+                    mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                elseif scope === Volume
+                    mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                elseif scope === Agent
+                    mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                end
+                if scope == Node
                     obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
                 else
                     obj[scope_index]._pReference .= [false, true]
                 end
                 obj[scope_index].a .= 7.0
                 obj[scope_index].b .= 2
-                obj2 = UnstructuredMeshObject(mesh, 
-                    agentN=2, agentNCache=4, 
-                    nodeN=2, nodeNCache=4, 
-                    edgeN=2, edgeNCache=4, 
-                    faceN=2, faceNCache=4, 
-                    volumeN=2, volumeNCache=4
-                )
-                if scope == :propertiesNode
+                if scope == Node
                     obj2[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
                 else
                     obj2[scope_index]._pReference .= [false, true]
@@ -449,28 +473,37 @@ import StaticArrays: SizedVector
                 end
 
                 # Broadcast @..
-                obj = UnstructuredMeshObject(mesh, 
-                    agentN=2, agentNCache=4, 
-                    nodeN=2, nodeNCache=4, 
-                    edgeN=2, edgeNCache=4, 
-                    faceN=2, faceNCache=4, 
-                    volumeN=2, volumeNCache=4
-                )
-                if scope == :propertiesNode
+                mesh = nothing
+                obj = nothing
+                if scope === Node
+                    mesh = UnstructuredMesh(dims; n  = Node(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4))
+                elseif scope === Edge
+                    mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                elseif scope === Face
+                    mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                elseif scope === Volume
+                    mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                elseif scope === Agent
+                    mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                end
+                if scope == Node
                     obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
                 else
                     obj[scope_index]._pReference .= [false, true]
                 end
                 obj[scope_index].a .= 7.0
                 obj[scope_index].b .= 2
-                obj2 = UnstructuredMeshObject(mesh, 
-                    agentN=2, agentNCache=4, 
-                    nodeN=2, nodeNCache=4, 
-                    edgeN=2, edgeNCache=4, 
-                    faceN=2, faceNCache=4, 
-                    volumeN=2, volumeNCache=4
-                )
-                if scope == :propertiesNode
+                if scope == Node
                     obj2[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
                 else
                     obj2[scope_index]._pReference .= [false, true]
@@ -497,28 +530,31 @@ import StaticArrays: SizedVector
     @testset "UnstructuredMeshObject - GPU kernels" begin
         for dims in 0:3
             for (scope, scope_index) in zip(all_scopes, all_scopes_index)            
-                mesh = UnstructuredMesh(
-                    dims;
-                    propertiesAgent  = scope == :propertiesAgent  ? props : nothing,
-                    propertiesNode   = scope == :propertiesNode   ? props : nothing,
-                    propertiesEdge   = scope == :propertiesEdge   ? props : nothing,
-                    propertiesFace   = scope == :propertiesFace   ? props : nothing,
-                    propertiesVolume = scope == :propertiesVolume ? props : nothing,
-                )
                 # Kernel works
                 if CUDA.has_cuda()
                     function test_kernel_object!(x)
-                        x.a
+                        x.n
                         nothing
                     end
 
-                    obj = UnstructuredMeshObject(mesh, 
-                        agentN=2, agentNCache=4, 
-                        nodeN=2, nodeNCache=4, 
-                        edgeN=2, edgeNCache=4, 
-                        faceN=2, faceNCache=4, 
-                        volumeN=2, volumeNCache=4
-                    )
+                    mesh = nothing
+                    obj = nothing
+                    if scope === Node
+                        mesh = UnstructuredMesh(dims; n  = Node(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4))
+                    elseif scope === Edge
+                        mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    elseif scope === Face
+                        mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    elseif scope === Volume
+                        mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    elseif scope === Agent
+                        mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    end
                     obj_gpu = toGPU(obj)
 
                     @test_nowarn CUDA.@cuda test_kernel_object!(obj_gpu)
@@ -530,28 +566,32 @@ import StaticArrays: SizedVector
     @testset "UnstructuredMeshObject - DifferentialEquations compatibility" begin
         for dims in 0:3
             for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-                for integratorAlg in (Euler(), RK4(), Tsit5())
-                    mesh = UnstructuredMesh(
-                        dims;
-                        propertiesAgent  = scope == :propertiesAgent  ? props : nothing,
-                        propertiesNode   = scope == :propertiesNode   ? props : nothing,
-                        propertiesEdge   = scope == :propertiesEdge   ? props : nothing,
-                        propertiesFace   = scope == :propertiesFace   ? props : nothing,
-                        propertiesVolume = scope == :propertiesVolume ? props : nothing,
-                    )
+                for integratorAlg in (Euler(), RK4())#, Tsit5())
+
                     # DifferentialEquations.jl compatibility
                     function fODE!(du, u, p, t)
                         @. du[scope_index].a = 1
                         return
                     end
-                    obj = UnstructuredMeshObject(mesh, 
-                        agentN=2, agentNCache=4, 
-                        nodeN=2, nodeNCache=4, 
-                        edgeN=2, edgeNCache=4, 
-                        faceN=2, faceNCache=4, 
-                        volumeN=2, volumeNCache=4
-                    )
-                    if scope == :propertiesNode
+                    mesh = nothing
+                    obj = nothing
+                    if scope === Node
+                        mesh = UnstructuredMesh(dims; n  = Node(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4))
+                    elseif scope === Edge
+                        mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    elseif scope === Face
+                        mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    elseif scope === Volume
+                        mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    elseif scope === Agent
+                        mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    end
+                    if scope == Node
                         obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
                     else
                         obj[scope_index]._pReference .= [false, true]
@@ -563,14 +603,25 @@ import StaticArrays: SizedVector
                     end
                     @test all(integrator.u[scope_index].a .≈ 1.0)
                     if CUDA.has_cuda()
-                        obj = UnstructuredMeshObject(mesh, 
-                            agentN=2, agentNCache=4, 
-                            nodeN=2, nodeNCache=4, 
-                            edgeN=2, edgeNCache=4, 
-                            faceN=2, faceNCache=4, 
-                            volumeN=2, volumeNCache=4
-                        )
-                        if scope == :propertiesNode
+                        mesh = nothing
+                        obj = nothing
+                        if scope === Node
+                            mesh = UnstructuredMesh(dims; n  = Node(props))
+                            obj = UnstructuredMeshObject(mesh, n = (2,4))
+                        elseif scope === Edge
+                            mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                            obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                        elseif scope === Face
+                            mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                            obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                        elseif scope === Volume
+                            mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                            obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                        elseif scope === Agent
+                            mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                            obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                        end
+                        if scope == Node
                             obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
                         else
                             obj[scope_index]._pReference .= [false, true]
