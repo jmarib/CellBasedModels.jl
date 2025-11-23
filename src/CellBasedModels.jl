@@ -43,6 +43,7 @@ module CellBasedModels
     # include("./neighbors/abstractTypes.jl")
     # include("./AgentStructure/abstractTypes.jl")
     # include("./CommunityStructure/abstractTypes.jl")
+    include("./neighbors/abstractTypes.jl")
 
     #Agent
     include("./AgentStructure/auxiliar.jl")

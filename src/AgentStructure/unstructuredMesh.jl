@@ -16,7 +16,7 @@ end
 ######################################################################################################
 struct UnstructuredMesh{D, S, PA, PN, PE, PF, PV} <: AbstractMesh
 
-    a::Union{NamedTuple, Nothing}                   # Dictionary to hold agent properties
+    a::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
     n::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
     e::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
     f::Union{NamedTuple, Nothing}    # Dictionary to hold agent properties
@@ -766,8 +766,8 @@ function unpack_voa(x::UnstructuredMeshObjectField, i)
     x._p[i]
 end
 
-# update!
-function update!(mesh::UnstructuredMeshObjectField)
+# updateAdditions!
+function updateAdditions!(mesh::UnstructuredMeshObjectField)
 
     N = mesh._N[]
     NNew = sum(mesh._NAddedThread)
@@ -794,14 +794,10 @@ function update!(mesh::UnstructuredMeshObjectField)
         end
     end
 
-    # Remove flagged agents
-
     # Reset added and removed counters
     mesh._N[] += NNew 
     mesh._NAdded[] = 0
-    mesh._NRemoved[] = 0
     fill!(mesh._NAddedThread, 0)
-    fill!(mesh._NRemovedThread, 0)
 
     return
 end
@@ -837,6 +833,7 @@ function UnstructuredMeshObject(
         faceNCache::Union{Nothing, Integer}=nothing,
         volumeN::Integer=0,
         volumeNCache::Union{Nothing, Integer}=nothing,
+        neighbors::Union{Nothing, AbstractNeighbors}=nothing,
     ) where {D, S, PA, PN, PE, PF, PV}
 
     fields = []
@@ -873,15 +870,15 @@ function UnstructuredMeshObject(
     end
 
     return UnstructuredMeshObject{
-            P, D, S, DT, Nothing,
+            P, D, S, DT, typeof(neighbors),
             (typeof(i) for i in fields)...
         }(
-            fields..., nothing
+            fields..., neighbors
         )
 end
 
 function UnstructuredMeshObject(
-            a, n, e, f, v
+            a, n, e, f, v, neighbors
     )
 
     D = length(filter(k -> k in (:x, :y, :z), keys(n._p)))
@@ -899,10 +896,10 @@ function UnstructuredMeshObject(
     end
 
     return UnstructuredMeshObject{
-            P, D, S, DT, Nothing,
+            P, D, S, DT, typeof(neighbors),
             typeof(a), typeof(n), typeof(e), typeof(f), typeof(v)
         }(
-            a, n, e, f, v, nothing
+            a, n, e, f, v, neighbors
         )
 end
 
@@ -1367,26 +1364,61 @@ function unpack_voa(x::UnstructuredMeshObject, i, j, n)
     x[i]._p[j]
 end
 
+# updateAdditions!
+function updateAdditions!(
+        mesh::UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}
+    ) where {P, D, S, DT, NN, A, N, E, F, V}
+
+    if getfield(mesh, :a) !== nothing
+        updateAdditions!(getfield(mesh, :a))
+    end
+    if getfield(mesh, :n) !== nothing
+        updateAdditions!(getfield(mesh, :n))
+    end
+    if getfield(mesh, :e) !== nothing
+        updateAdditions!(getfield(mesh, :e))
+    end
+    if getfield(mesh, :f) !== nothing
+        updateAdditions!(getfield(mesh, :f))
+    end
+    if getfield(mesh, :v) !== nothing
+        updateAdditions!(getfield(mesh, :v))
+    end
+
+    mesh
+end
+
+# updateAdditions!
+function updateRemovals!(
+        mesh::UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}
+    ) where {P, D, S, DT, NN, A, N, E, F, V}
+
+    if getfield(mesh, :a) !== nothing
+        updateRemovals!(getfield(mesh, :a))
+    end
+    if getfield(mesh, :n) !== nothing
+        updateRemovals!(getfield(mesh, :n))
+    end
+    if getfield(mesh, :e) !== nothing
+        updateRemovals!(getfield(mesh, :e))
+    end
+    if getfield(mesh, :f) !== nothing
+        updateRemovals!(getfield(mesh, :f))
+    end
+    if getfield(mesh, :v) !== nothing
+        updateRemovals!(getfield(mesh, :v))
+    end
+
+    mesh
+end
+
 # update!
 function update!(
         mesh::UnstructuredMeshObject{P, D, S, DT, NN, A, N, E, F, V}
     ) where {P, D, S, DT, NN, A, N, E, F, V}
 
-    if getfield(mesh, :a) !== nothing
-        update!(getfield(mesh, :a))
-    end
-    if getfield(mesh, :n) !== nothing
-        update!(getfield(mesh, :n))
-    end
-    if getfield(mesh, :e) !== nothing
-        update!(getfield(mesh, :e))
-    end
-    if getfield(mesh, :f) !== nothing
-        update!(getfield(mesh, :f))
-    end
-    if getfield(mesh, :v) !== nothing
-        update!(getfield(mesh, :v))
-    end
+    updateAdditions!(mesh)
+    updateRemovals!(mesh)
 
     mesh
 end
