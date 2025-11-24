@@ -235,14 +235,14 @@ function addFunction!(mesh::UnstructuredMesh, type, scope, params, functions)
         field_name, parameter_name = param
 
         field = nothing
-        if field_name in fieldnames(typeof(mesh))
-            field = getfield(mesh, field_name)
+        if field_name in keys(mesh._p)
+            field = getfield(mesh._p, field_name)
         else
             error("Mesh does not have field $field_name. Available fields are: $(fieldnames(typeof(mesh))). Most probably you assigned incorrectly a parameter in a function (e.g. mesh.$field_name.$parameter_name). Valid parameters are: \n $mesh")
         end  
 
-        if parameter_name in keys(field)
-            par = field[parameter_name]
+        if parameter_name in keys(field.p)
+            par = field.p[parameter_name]
             CellBasedModels.setModifiedIn!(par, type, scope)
         else
             error("Parameter $parameter_name does not exist in field $field_name. Most probably you assigned incorrectly a parameter in a function (e.g. mesh.$field_name.$parameter_name). Valid parameters are: \n $mesh")
@@ -262,14 +262,12 @@ function modifiedInScope(mesh::UnstructuredMesh, scope::Symbol)
 
     modified = []
 
-    for field in (:a, :n, :e, :f, :v)
-        props = getfield(mesh, field)
-        if props !== nothing
-            for (name, par) in pairs(props)
-                for (t, s) in par._modifiedIn
-                    if s == scope
-                        push!(modified, (field, name))
-                    end
+    for field in keys(mesh._p)
+        props = getfield(mesh._p, field)
+        for (name, par) in pairs(props.p)
+            for (t, s) in par._modifiedIn
+                if s == scope
+                    push!(modified, (field, name))
                 end
             end
         end
@@ -282,10 +280,10 @@ function modifiedInScope(mesh::UnstructuredMesh)
 
     modified = []
 
-    for field in (:a, :n, :e, :f, :v)
+    for field in keys(mesh._p)
         props = getfield(mesh, field)
         if props !== nothing
-            for (name, par) in pairs(props)
+            for (name, par) in pairs(props.p)
                 for (t, s) in par._modifiedIn
                     push!(modified, (field, name))
                 end
@@ -961,12 +959,16 @@ function UnstructuredMeshObject(
     params = NamedTuple{tuple(keys(mesh._p)...)}(fields)
     neighbors_ = initNeighbors(D, neighbors, params)
 
-    return UnstructuredMeshObject{
+    mesh = UnstructuredMeshObject{
             P, D, S, DT, typeof(neighbors_),
             typeof(params)
         }(
             params, neighbors_
         )
+
+    update!(mesh)
+
+    return mesh
 end
 
 function UnstructuredMeshObject(
@@ -1005,32 +1007,27 @@ function Base.show(io::IO, x::UnstructuredMeshObject{P, D, S}) where {P, D, S}
 end
 
 function show(io::IO, x::UnstructuredMeshObject, full=false)
-    for (f,n) in zip(
-            (x.a, x.n, x.e, x.f, x.v),
-            ("Agent Properties", "Node Properties", "Edge Properties", "Face Properties", "Volume Properties"),
-        )
-        if f !== nothing
-            println(io, "\t", replace(n))
-            println(io, @sprintf("\t%-20s %-15s", "Name (Public)", "DataType"))
-            println(io, "\t" * repeat("-", 85))
-            for ((name, par), c) in zip(pairs(f._p), f._pReference)
-                println(io, @sprintf("\t%-20s %-15s", 
-                    c ? string("*", name) : string(name),
-                    typeof(par)))
-            end
-            if full
-                println(io, @sprintf("\n\t%-20s %-15s", "Name (Protected)", "DataType"))
-                println(io, "\t" * repeat("-", 85))
-                fields = fieldnames(typeof(f))
-                for name in fields
-                    v = typeof(getfield(f, name))
-                    println(io, @sprintf("\t%-20s %-15s", 
-                        "*$name",
-                        v))
-                end
-            end
-            println(io)
+    for (f,n) in pairs(x._p)
+        println(io, "\t", f, " (", typeof(n).name.name, ")")
+        println(io, @sprintf("\t%-20s %-15s", "Name (Public)", "DataType"))
+        println(io, "\t" * repeat("-", 85))
+        for ((name, par), c) in zip(pairs(n._p), n._pReference)
+            println(io, @sprintf("\t%-20s %-15s", 
+                c ? string("*", name) : string(name),
+                typeof(par)))
         end
+        if full
+            println(io, @sprintf("\n\t%-20s %-15s", "Name (Protected)", "DataType"))
+            println(io, "\t" * repeat("-", 85))
+            fields = fieldnames(typeof(f))
+            for name in fields
+                v = typeof(getfield(f, name))
+                println(io, @sprintf("\t%-20s %-15s", 
+                    "*$name",
+                    v))
+            end
+        end
+        println(io)
     end
 end
 
@@ -1131,7 +1128,7 @@ function partialCopy(field::UnstructuredMeshObject{P, D, S, DT, NN, PAR}, copyAr
 
     UnstructuredMeshObject{P, D, S, DT, NN, PAR}(
         NamedTuple{keys(field._p)}(
-            partialCopy(getfield(field._p, name)) for name in keys(field._p)
+            partialCopy(getfield(field._p, name), [i[2] for i in copyArgs if i[1] == name]) for name in keys(field._p)
         ),
         field._neighbors
     )

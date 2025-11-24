@@ -35,12 +35,12 @@ function initNeighbors(
 
 end
 
-function update!(neigh::NeighborsFull, mesh::UnstructuredMeshObject)
+function update!(mesh::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P, D, S, DT, NN<:NeighborsFull, PAR}
 
     # Compaction
-    for (name, prop) in pairs(mesh)
+    for (name, prop) in pairs(mesh._p)
         N = lengthProperties(prop)
-        @views cumsum!(neigh.permTable[name][1:N], prop._FlagsSurvived[1:N])
+        @views cumsum!(mesh._neighbors.permTable[name][1:N], prop._FlagsSurvived[1:N])
         @views prop._FlagsSurvived[1:N] .= true
     end
 

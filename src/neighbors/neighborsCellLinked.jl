@@ -77,6 +77,10 @@ function initNeighbors(
     D = dims
     P = platform()
 
+    if dims < 1 || dims > 3
+        error("NeighborsCellLinked only supports 1D, 2D, or 3D. Found dims=$dims")
+    end
+
     if size(neighbors.box) != (D, 2)
         error("Box size mismatch. Expected size ($(D), 2), found size $(size(neighbors.box))")
     end
@@ -163,7 +167,7 @@ function initNeighbors(
 
 end
 
-function update!(mesh::UnstructuredMeshObject{D}) where {D}
+function update!(mesh::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P, D, S, DT, NN<:NeighborsCellLinked, PAR}
 
     # Cell reassignment and permutation table filling
     for (name, prop) in pairs(mesh._p)

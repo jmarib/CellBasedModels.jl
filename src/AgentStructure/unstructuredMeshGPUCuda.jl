@@ -135,7 +135,7 @@ function toCPU(field::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P<:GP
     p = NamedTuple{keys(field._p)}(
         toCPU(p) for p in values(field._p)
     )
-    n = initNeighbors(field._neighbors, p)
+    n = initNeighbors(D, field._neighbors, p)
 
     PARNew = typeof(p)
     NNNew = typeof(n)
@@ -154,7 +154,7 @@ function toGPU(field::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P<:CP
     p = NamedTuple{keys(field._p)}(
         toGPU(p) for p in values(field._p)
     )
-    n = initNeighborsGPU(field._neighbors, p)
+    n = initNeighborsGPU(D, field._neighbors, p)
 
     PARNew = typeof(p)
     NNNew = typeof(n)
