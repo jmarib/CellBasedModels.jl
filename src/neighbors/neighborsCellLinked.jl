@@ -1,10 +1,11 @@
-struct NeighborsCellLinked{D, P, UM, B, CS, G, C, CO, PT, CC} <: AbstractNeighbors 
+struct NeighborsCellLinked{D, P, UM, B, CS, G, C, CO, PT, CC, PE} <: AbstractNeighbors 
 
     u::UM
 
     box::B
     cellSize::CS
     grid::G
+    periodic::PE
 
     cell::C
     cellOffset::CO
@@ -16,12 +17,13 @@ struct NeighborsCellLinked{D, P, UM, B, CS, G, C, CO, PT, CC} <: AbstractNeighbo
 end
 Adapt.@adapt_structure NeighborsCellLinked
 
-function NeighborsCellLinked(;box, cellSize)
-    NeighborsCellLinked{Nothing, Nothing, Nothing, typeof(box), typeof(cellSize), Nothing, Nothing, Nothing, Nothing, Nothing}(
+function NeighborsCellLinked(;box, cellSize, periodic=nothing)
+    NeighborsCellLinked{Nothing, Nothing, Nothing, typeof(box), typeof(cellSize), Nothing, Nothing, Nothing, Nothing, Nothing, typeof(periodic)}(
         nothing, 
         box, 
         cellSize,
         nothing,
+        periodic,
         nothing,
         nothing,
         nothing,
@@ -35,6 +37,7 @@ function NeighborsCellLinked(
     box,
     cellSize,
     grid,
+    periodic,
     cell,
     cellOffset
 )
@@ -49,12 +52,14 @@ function NeighborsCellLinked(
         typeof(cell),
         typeof(cellOffset),
         typeof(permTable),
-        Nothing
+        Nothing,
+        typeof(periodic)
     }(
         mesh,
         box,
         cellSize,
         grid,
+        periodic,
         cell,
         cellOffset,
         permTable,
@@ -96,7 +101,37 @@ function initNeighbors(
         error("Cell size must be a Number, Tuple, or Vector. Found type $(typeof(cellSize))")
     end
 
-    grid = round.(Int, (box[:,2] - box[:,1]) ./ cellSize .+ 2)
+    # Handle periodic boundary parameter
+    periodic = neighbors.periodic
+    if periodic === nothing
+        # Default: no periodic boundaries
+        periodic = ntuple(i -> false, D)
+    elseif periodic isa Bool
+        # Single bool: apply to all dimensions
+        periodic = ntuple(i -> periodic, D)
+    elseif periodic isa Tuple
+        # Tuple: check length
+        if length(periodic) != D
+            error("Periodic tuple length mismatch. Expected length $(D), found length $(length(periodic))")
+        end
+        periodic = ntuple(i -> periodic[i], D)
+    elseif periodic isa AbstractVector
+        # Vector: check length and convert to tuple
+        if length(periodic) != D
+            error("Periodic vector length mismatch. Expected length $(D), found length $(length(periodic))")
+        end
+        periodic = ntuple(i -> periodic[i], D)
+    else
+        error("Periodic parameter must be Nothing, Bool, Tuple, or Vector. Found type $(typeof(periodic))")
+    end
+
+    # Calculate grid size: no padding for periodic dimensions, padding for non-periodic
+    grid = round.(Int, (box[:,2] - box[:,1]) ./ cellSize)
+    for i in 1:D
+        if !periodic[i]
+            grid[i] += 2  # Add padding for non-periodic boundaries
+        end
+    end
     gridTuple = ntuple(i -> grid[i], D)  # Convert to NTuple for assignCell! compatibility
     gridSize = prod(grid)  # Total number of cells
 
@@ -123,8 +158,8 @@ function initNeighbors(
         typeof(meshParameters), 
         typeof(box), typeof(cellSize), typeof(gridTuple), 
         typeof(cellNamed), typeof(cellOffsetNamed),
-        typeof(permTableNamed), typeof(cellCountersNamed)
-    }(meshParameters, box, cellSize, gridTuple, cellNamed, cellOffsetNamed, permTableNamed, cellCountersNamed)
+        typeof(permTableNamed), typeof(cellCountersNamed), typeof(periodic)
+    }(meshParameters, box, cellSize, gridTuple, periodic, cellNamed, cellOffsetNamed, permTableNamed, cellCountersNamed)
 
 end
 
@@ -154,15 +189,51 @@ function assignCell(neighbors, x)
 end
 
 function assignCell(neighbors, x, y)
-    cellX = clamp(floor(Int, (x - neighbors.box[1,1]) / neighbors.cellSize[1]), 0, neighbors.grid[1] - 1)
-    cellY = clamp(floor(Int, (y - neighbors.box[2,1]) / neighbors.cellSize[2]), 0, neighbors.grid[2] - 1)
+    # Calculate raw cell indices
+    rawCellX = floor(Int, (x - neighbors.box[1,1]) / neighbors.cellSize[1])
+    rawCellY = floor(Int, (y - neighbors.box[2,1]) / neighbors.cellSize[2])
+    
+    # Apply boundary conditions
+    if neighbors.periodic[1]
+        cellX = rawCellX % neighbors.grid[1]
+    else
+        cellX = clamp(rawCellX, 0, neighbors.grid[1] - 1)
+    end
+    
+    if neighbors.periodic[2]
+        cellY = rawCellY % neighbors.grid[2]
+    else
+        cellY = clamp(rawCellY, 0, neighbors.grid[2] - 1)
+    end
+    
     return cellY * neighbors.grid[1] + cellX + 1
 end
 
 function assignCell(neighbors, x, y, z)
-    cellX = clamp(floor(Int, (x - neighbors.box[1,1]) / neighbors.cellSize[1]), 0, neighbors.grid[1] - 1)
-    cellY = clamp(floor(Int, (y - neighbors.box[2,1]) / neighbors.cellSize[2]), 0, neighbors.grid[2] - 1)
-    cellZ = clamp(floor(Int, (z - neighbors.box[3,1]) / neighbors.cellSize[3]), 0, neighbors.grid[3] - 1)
+    # Calculate raw cell indices
+    rawCellX = floor(Int, (x - neighbors.box[1,1]) / neighbors.cellSize[1])
+    rawCellY = floor(Int, (y - neighbors.box[2,1]) / neighbors.cellSize[2])
+    rawCellZ = floor(Int, (z - neighbors.box[3,1]) / neighbors.cellSize[3])
+    
+    # Apply boundary conditions
+    if neighbors.periodic[1]
+        cellX = rawCellX % neighbors.grid[1]
+    else
+        cellX = clamp(rawCellX, 0, neighbors.grid[1] - 1)
+    end
+    
+    if neighbors.periodic[2]
+        cellY = rawCellY % neighbors.grid[2]
+    else
+        cellY = clamp(rawCellY, 0, neighbors.grid[2] - 1)
+    end
+    
+    if neighbors.periodic[3]
+        cellZ = rawCellZ % neighbors.grid[3]
+    else
+        cellZ = clamp(rawCellZ, 0, neighbors.grid[3] - 1)
+    end
+    
     return cellZ * neighbors.grid[1] * neighbors.grid[2] + cellY * neighbors.grid[1] + cellX + 1
 end
 
@@ -176,8 +247,24 @@ function assignCell!(cellArray, N, prop, neighbors::NeighborsCellLinked{2})
     x = @views prop.x[1:N]
     y = @views prop.y[1:N]
     cell = @views cellArray[1:N]
-    cellX = clamp.(floor.(Int, (x .- neighbors.box[1,1]) ./ neighbors.cellSize[1]), 0, neighbors.grid[1] - 1)
-    cellY = clamp.(floor.(Int, (y .- neighbors.box[2,1]) ./ neighbors.cellSize[2]), 0, neighbors.grid[2] - 1)
+    
+    # Calculate cell indices
+    rawCellX = floor.(Int, (x .- neighbors.box[1,1]) ./ neighbors.cellSize[1])
+    rawCellY = floor.(Int, (y .- neighbors.box[2,1]) ./ neighbors.cellSize[2])
+    
+    # Apply boundary conditions
+    if neighbors.periodic[1]
+        cellX = rawCellX .% neighbors.grid[1]
+    else
+        cellX = clamp.(rawCellX, 0, neighbors.grid[1] - 1)
+    end
+    
+    if neighbors.periodic[2]
+        cellY = rawCellY .% neighbors.grid[2]
+    else
+        cellY = clamp.(rawCellY, 0, neighbors.grid[2] - 1)
+    end
+    
     cell .= cellY .* neighbors.grid[1] .+ cellX .+ 1
 end
 
@@ -186,9 +273,31 @@ function assignCell!(cellArray, N, prop, neighbors::NeighborsCellLinked{3})
     y = @views prop.y[1:N]
     z = @views prop.z[1:N]
     cell = @views cellArray[1:N]
-    cellX = clamp.(floor.(Int, (x .- neighbors.box[1,1]) ./ neighbors.cellSize[1]), 0, neighbors.grid[1] - 1)
-    cellY = clamp.(floor.(Int, (y .- neighbors.box[2,1]) ./ neighbors.cellSize[2]), 0, neighbors.grid[2] - 1)
-    cellZ = clamp.(floor.(Int, (z .- neighbors.box[3,1]) ./ neighbors.cellSize[3]), 0, neighbors.grid[3] - 1)
+    
+    # Calculate cell indices
+    rawCellX = floor.(Int, (x .- neighbors.box[1,1]) ./ neighbors.cellSize[1])
+    rawCellY = floor.(Int, (y .- neighbors.box[2,1]) ./ neighbors.cellSize[2])
+    rawCellZ = floor.(Int, (z .- neighbors.box[3,1]) ./ neighbors.cellSize[3])
+    
+    # Apply boundary conditions
+    if neighbors.periodic[1]
+        cellX = rawCellX .% neighbors.grid[1]
+    else
+        cellX = clamp.(rawCellX, 0, neighbors.grid[1] - 1)
+    end
+    
+    if neighbors.periodic[2]
+        cellY = rawCellY .% neighbors.grid[2]
+    else
+        cellY = clamp.(rawCellY, 0, neighbors.grid[2] - 1)
+    end
+    
+    if neighbors.periodic[3]
+        cellZ = rawCellZ .% neighbors.grid[3]
+    else
+        cellZ = clamp.(rawCellZ, 0, neighbors.grid[3] - 1)
+    end
+    
     cell .= cellZ .* neighbors.grid[1] .* neighbors.grid[2] .+ cellY .* neighbors.grid[1] .+ cellX .+ 1
 end
 
@@ -222,13 +331,17 @@ function countInCell!(cellOffset, N, cell, cellCounters)
     end
     
     # Convert counts to cumulative offsets properly
-    # We want cellOffset[i] to be the starting position for cell i (0-based)
-    # So cellOffset[1] = 0, cellOffset[2] = count[1], cellOffset[3] = count[1] + count[2], etc.
-    for i in nCells:-1:2
-        cellOffset[i] = cellOffset[i-1]
+    # cellOffset[i] should be the starting position for cell i (0-based)
+    # For example: if cell 1 has 2 particles, cell 2 has 1 particle:
+    # cellOffset[1] = 0, cellOffset[2] = 2, cellOffset[3] = 3
+    
+    temp_offset = 0
+    for i in 1:nCells
+        count = cellOffset[i]
+        cellOffset[i] = temp_offset
+        temp_offset += count
     end
-    cellOffset[1] = 0  # First cell starts at position 0
-    cumsum!(cellOffset, cellOffset)  # Now cellOffset[i] = sum of counts for cells 1 to i-1
+    cellOffset[nCells + 1] = temp_offset  # Total count
     
     return cellOffset
 end
@@ -274,6 +387,7 @@ struct NeighborIterator1D{NN, PT, CO}
     cellOffset::CO
     cells::NTuple{3, Int}  # The 3 neighboring cells
     gridSize::Int
+    periodic::Bool
 end
 
 struct NeighborIterator2D{NN, PT, CO}
@@ -284,6 +398,8 @@ struct NeighborIterator2D{NN, PT, CO}
     centerCellY::Int
     gridX::Int
     gridY::Int
+    periodicX::Bool
+    periodicY::Bool
 end
 
 struct NeighborIterator3D{NN, PT, CO}
@@ -296,6 +412,9 @@ struct NeighborIterator3D{NN, PT, CO}
     gridX::Int
     gridY::Int
     gridZ::Int
+    periodicX::Bool
+    periodicY::Bool
+    periodicZ::Bool
 end
 
 # Iterator state for tracking position
@@ -374,7 +493,23 @@ function Base.iterate(iter::NeighborIterator2D)
     neighborX = iter.centerCellX + dx
     neighborY = iter.centerCellY + dy
     
-    if 0 <= neighborX < iter.gridX && 0 <= neighborY < iter.gridY
+    # Apply periodic boundary conditions or bounds checking
+    validX = true
+    validY = true
+    
+    if iter.periodicX
+        neighborX = ((neighborX % iter.gridX) + iter.gridX) % iter.gridX  # Proper modulo for negative numbers
+    else
+        validX = (0 <= neighborX < iter.gridX)
+    end
+    
+    if iter.periodicY
+        neighborY = ((neighborY % iter.gridY) + iter.gridY) % iter.gridY  # Proper modulo for negative numbers
+    else
+        validY = (0 <= neighborY < iter.gridY)
+    end
+    
+    if validX && validY
         neighborCell = neighborY * iter.gridX + neighborX + 1
         startPos = iter.cellOffset[neighborCell] + 1
         endPos = iter.cellOffset[neighborCell + 1]
@@ -385,7 +520,7 @@ function Base.iterate(iter::NeighborIterator2D)
         end
     end
     
-    # If first cell is empty, find next valid cell/particle
+    # If first cell is empty or invalid, find next valid cell/particle
     return iterate_next_2d(iter, dx, dy, 0)
 end
 
@@ -413,7 +548,23 @@ function iterate_next_2d(iter::NeighborIterator2D, start_dx::Int, start_dy::Int,
         neighborX = iter.centerCellX + dx
         neighborY = iter.centerCellY + dy
         
-        if 0 <= neighborX < iter.gridX && 0 <= neighborY < iter.gridY
+        # Apply periodic boundary conditions or skip if out of bounds
+        validX = true
+        validY = true
+        
+        if iter.periodicX
+            neighborX = ((neighborX % iter.gridX) + iter.gridX) % iter.gridX  # Proper modulo for negative numbers
+        else
+            validX = (0 <= neighborX < iter.gridX)
+        end
+        
+        if iter.periodicY
+            neighborY = ((neighborY % iter.gridY) + iter.gridY) % iter.gridY  # Proper modulo for negative numbers
+        else
+            validY = (0 <= neighborY < iter.gridY)
+        end
+        
+        if validX && validY
             neighborCell = neighborY * iter.gridX + neighborX + 1
             startPos = iter.cellOffset[neighborCell] + 1
             endPos = iter.cellOffset[neighborCell + 1]
@@ -435,7 +586,30 @@ function Base.iterate(iter::NeighborIterator3D)
     neighborY = iter.centerCellY + dy
     neighborZ = iter.centerCellZ + dz
     
-    if 0 <= neighborX < iter.gridX && 0 <= neighborY < iter.gridY && 0 <= neighborZ < iter.gridZ
+    # Apply periodic boundary conditions or bounds checking
+    validX = true
+    validY = true
+    validZ = true
+    
+    if iter.periodicX
+        neighborX = ((neighborX % iter.gridX) + iter.gridX) % iter.gridX  # Proper modulo for negative numbers
+    else
+        validX = (0 <= neighborX < iter.gridX)
+    end
+    
+    if iter.periodicY
+        neighborY = ((neighborY % iter.gridY) + iter.gridY) % iter.gridY  # Proper modulo for negative numbers
+    else
+        validY = (0 <= neighborY < iter.gridY)
+    end
+    
+    if iter.periodicZ
+        neighborZ = ((neighborZ % iter.gridZ) + iter.gridZ) % iter.gridZ  # Proper modulo for negative numbers
+    else
+        validZ = (0 <= neighborZ < iter.gridZ)
+    end
+    
+    if validX && validY && validZ
         neighborCell = neighborZ * iter.gridX * iter.gridY + neighborY * iter.gridX + neighborX + 1
         startPos = iter.cellOffset[neighborCell] + 1
         endPos = iter.cellOffset[neighborCell + 1]
@@ -446,7 +620,7 @@ function Base.iterate(iter::NeighborIterator3D)
         end
     end
     
-    # If first cell is empty, find next valid cell/particle
+    # If first cell is empty or invalid, find next valid cell/particle
     return iterate_next_3d(iter, dx, dy, dz, 0)
 end
 
@@ -475,7 +649,30 @@ function iterate_next_3d(iter::NeighborIterator3D, start_dx::Int, start_dy::Int,
         neighborY = iter.centerCellY + dy
         neighborZ = iter.centerCellZ + dz
         
-        if 0 <= neighborX < iter.gridX && 0 <= neighborY < iter.gridY && 0 <= neighborZ < iter.gridZ
+        # Apply periodic boundary conditions or bounds checking
+        validX = true
+        validY = true
+        validZ = true
+        
+        if iter.periodicX
+            neighborX = ((neighborX % iter.gridX) + iter.gridX) % iter.gridX  # Proper modulo for negative numbers
+        else
+            validX = (0 <= neighborX < iter.gridX)
+        end
+        
+        if iter.periodicY
+            neighborY = ((neighborY % iter.gridY) + iter.gridY) % iter.gridY  # Proper modulo for negative numbers
+        else
+            validY = (0 <= neighborY < iter.gridY)
+        end
+        
+        if iter.periodicZ
+            neighborZ = ((neighborZ % iter.gridZ) + iter.gridZ) % iter.gridZ  # Proper modulo for negative numbers
+        else
+            validZ = (0 <= neighborZ < iter.gridZ)
+        end
+        
+        if validX && validY && validZ
             neighborCell = neighborZ * iter.gridX * iter.gridY + neighborY * iter.gridX + neighborX + 1
             startPos = iter.cellOffset[neighborCell] + 1
             endPos = iter.cellOffset[neighborCell + 1]
@@ -503,7 +700,8 @@ function iterateNeighbors(mesh::UnstructuredMeshObject{P, 1, S, DT, NN}, symbol:
         mesh._neighbors.permTable[symbol],
         mesh._neighbors.cellOffset[symbol],
         cells,
-        mesh._neighbors.grid[1]
+        mesh._neighbors.grid[1],
+        mesh._neighbors.periodic[1]
     )
 end
 
@@ -526,7 +724,9 @@ function iterateNeighbors(mesh::UnstructuredMeshObject{P, 2, S, DT, NN}, symbol:
         cellX,
         cellY,
         gridX,
-        gridY
+        gridY,
+        mesh._neighbors.periodic[1],
+        mesh._neighbors.periodic[2]
     )
 end
 
@@ -553,7 +753,10 @@ function iterateNeighbors(mesh::UnstructuredMeshObject{P, 3, S, DT, NN}, symbol:
         cellZ,
         gridX,
         gridY,
-        gridZ
+        gridZ,
+        mesh._neighbors.periodic[1],
+        mesh._neighbors.periodic[2],
+        mesh._neighbors.periodic[3]
     )
 end
 
