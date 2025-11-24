@@ -25,7 +25,7 @@ println("\n=== Cell-Linked Neighbor Algorithm Test ===")
 dims = 2
 N = 100  # Number of particles
 box_size = 10.0
-cell_size = (2.5, 1.5)  # Cell size for neighbor search
+cell_size = (5., 1.5)  # Cell size for neighbor search
 cutoff = 2.0     # Neighbor search radius
 
 # Create mesh and object

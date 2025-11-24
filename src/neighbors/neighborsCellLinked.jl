@@ -78,10 +78,22 @@ function initNeighbors(
     box = neighbors.box
 
     cellSize = neighbors.cellSize
-    if size(cellSize) == ()
+    if cellSize isa Number
+        # Scalar cellSize: replicate for all dimensions
         cellSize = fill(cellSize, D)
-    elseif size(cellSize) != (D,)
-        error("Cell size mismatch. Expected size ($(D),), found size $(size(cellSize))")        
+    elseif cellSize isa Tuple
+        # Tuple cellSize: convert to vector and check length
+        cellSize = collect(cellSize)
+        if length(cellSize) != D
+            error("Cell size mismatch. Expected length $(D), found length $(length(cellSize))")
+        end
+    elseif cellSize isa AbstractVector
+        # Vector cellSize: check length
+        if length(cellSize) != D
+            error("Cell size mismatch. Expected length $(D), found length $(length(cellSize))")        
+        end
+    else
+        error("Cell size must be a Number, Tuple, or Vector. Found type $(typeof(cellSize))")
     end
 
     grid = round.(Int, (box[:,2] - box[:,1]) ./ cellSize .+ 2)
@@ -255,115 +267,308 @@ function fillPermTable!(permTable, cellOffset, cell, N, cellCounters)
     return permTable
 end
 
-function iterateNeighbors(mesh::UnstructuredMeshObject{P, 1, S, DT, NN}, symbol::Symbol, x) where {P, S, DT, NN<:NeighborsCellLinked}
-    """
-    Get all particles in the 3 neighboring cells in 1D.
-    """
-    
-    cell = assignCell(mesh._neighbors, x)
-    cells = [cell - 1, cell, cell + 1]
+# Iterator types for non-allocating neighbor iteration
+struct NeighborIterator1D{NN, PT, CO}
+    neighbors::NN
+    permTable::PT
+    cellOffset::CO
+    cells::NTuple{3, Int}  # The 3 neighboring cells
+    gridSize::Int
+end
 
-    allNeighbors = Int[]
-    for cellIdx in cells
-        if cellIdx >= 1 && cellIdx <= mesh._neighbors.grid[1]
-            # Get the range of positions for this cell
-            startPos = mesh._neighbors.cellOffset[symbol][cellIdx] + 1
-            endPos = mesh._neighbors.cellOffset[symbol][cellIdx + 1]
-            
-            # Get the actual particle indices from the permutation table
-            for pos in startPos:endPos
-                if pos <= length(mesh._neighbors.permTable[symbol])
-                    particleIdx = mesh._neighbors.permTable[symbol][pos]
-                    push!(allNeighbors, particleIdx)
-                end
+struct NeighborIterator2D{NN, PT, CO}
+    neighbors::NN
+    permTable::PT
+    cellOffset::CO
+    centerCellX::Int
+    centerCellY::Int
+    gridX::Int
+    gridY::Int
+end
+
+struct NeighborIterator3D{NN, PT, CO}
+    neighbors::NN
+    permTable::PT
+    cellOffset::CO
+    centerCellX::Int
+    centerCellY::Int
+    centerCellZ::Int
+    gridX::Int
+    gridY::Int
+    gridZ::Int
+end
+
+# Iterator state for tracking position
+struct NeighborIteratorState
+    cellIdx::Int      # Current cell being iterated
+    particleIdx::Int  # Current particle within the cell
+    dx::Int           # Offset in x direction (-1, 0, 1)
+    dy::Int           # Offset in y direction (-1, 0, 1) 
+    dz::Int           # Offset in z direction (-1, 0, 1)
+end
+
+# Iterator protocol implementations
+Base.IteratorSize(::Type{<:NeighborIterator1D}) = Base.SizeUnknown()
+Base.IteratorSize(::Type{<:NeighborIterator2D}) = Base.SizeUnknown()
+Base.IteratorSize(::Type{<:NeighborIterator3D}) = Base.SizeUnknown()
+
+Base.eltype(::Type{<:NeighborIterator1D}) = Int
+Base.eltype(::Type{<:NeighborIterator2D}) = Int
+Base.eltype(::Type{<:NeighborIterator3D}) = Int
+
+# 1D Iterator implementation
+function Base.iterate(iter::NeighborIterator1D)
+    # Start with the first cell
+    for (cellIdx, cell) in enumerate(iter.cells)
+        if cell >= 1 && cell <= iter.gridSize
+            startPos = iter.cellOffset[cell] + 1
+            endPos = iter.cellOffset[cell + 1]
+            if startPos <= endPos
+                particleIdx = iter.permTable[startPos]
+                state = NeighborIteratorState(cellIdx, startPos, 0, 0, 0)
+                return (particleIdx, state)
             end
         end
     end
+    return nothing
+end
 
-    return allNeighbors
+function Base.iterate(iter::NeighborIterator1D, state::NeighborIteratorState)
+    cellIdx = state.cellIdx
+    particlePos = state.particleIdx + 1
+    
+    # Try next particle in current cell
+    if cellIdx <= length(iter.cells)
+        cell = iter.cells[cellIdx]
+        if cell >= 1 && cell <= iter.gridSize
+            endPos = iter.cellOffset[cell + 1]
+            if particlePos <= endPos
+                particleIdx = iter.permTable[particlePos]
+                newState = NeighborIteratorState(cellIdx, particlePos, 0, 0, 0)
+                return (particleIdx, newState)
+            end
+        end
+    end
+    
+    # Move to next cell
+    for nextCellIdx in (cellIdx + 1):length(iter.cells)
+        cell = iter.cells[nextCellIdx]
+        if cell >= 1 && cell <= iter.gridSize
+            startPos = iter.cellOffset[cell] + 1
+            endPos = iter.cellOffset[cell + 1]
+            if startPos <= endPos
+                particleIdx = iter.permTable[startPos]
+                newState = NeighborIteratorState(nextCellIdx, startPos, 0, 0, 0)
+                return (particleIdx, newState)
+            end
+        end
+    end
+    
+    return nothing
+end
+
+# 2D Iterator implementation
+function Base.iterate(iter::NeighborIterator2D)
+    # Start with dx=-1, dy=-1
+    dx, dy = -1, -1
+    neighborX = iter.centerCellX + dx
+    neighborY = iter.centerCellY + dy
+    
+    if 0 <= neighborX < iter.gridX && 0 <= neighborY < iter.gridY
+        neighborCell = neighborY * iter.gridX + neighborX + 1
+        startPos = iter.cellOffset[neighborCell] + 1
+        endPos = iter.cellOffset[neighborCell + 1]
+        if startPos <= endPos
+            particleIdx = iter.permTable[startPos]
+            state = NeighborIteratorState(neighborCell, startPos, dx, dy, 0)
+            return (particleIdx, state)
+        end
+    end
+    
+    # If first cell is empty, find next valid cell/particle
+    return iterate_next_2d(iter, dx, dy, 0)
+end
+
+function Base.iterate(iter::NeighborIterator2D, state::NeighborIteratorState)
+    # Try next particle in current cell
+    particlePos = state.particleIdx + 1
+    endPos = iter.cellOffset[state.cellIdx + 1]
+    if particlePos <= endPos
+        particleIdx = iter.permTable[particlePos]
+        newState = NeighborIteratorState(state.cellIdx, particlePos, state.dx, state.dy, 0)
+        return (particleIdx, newState)
+    end
+    
+    # Move to next cell
+    return iterate_next_2d(iter, state.dx, state.dy, particlePos)
+end
+
+function iterate_next_2d(iter::NeighborIterator2D, start_dx::Int, start_dy::Int, start_pos::Int)
+    # Continue from current position
+    for dy in start_dy:1, dx in (dy == start_dy ? start_dx : -1):1
+        if dy == start_dy && dx == start_dx && start_pos > 0
+            continue  # Skip the current position we just finished
+        end
+        
+        neighborX = iter.centerCellX + dx
+        neighborY = iter.centerCellY + dy
+        
+        if 0 <= neighborX < iter.gridX && 0 <= neighborY < iter.gridY
+            neighborCell = neighborY * iter.gridX + neighborX + 1
+            startPos = iter.cellOffset[neighborCell] + 1
+            endPos = iter.cellOffset[neighborCell + 1]
+            if startPos <= endPos
+                particleIdx = iter.permTable[startPos]
+                state = NeighborIteratorState(neighborCell, startPos, dx, dy, 0)
+                return (particleIdx, state)
+            end
+        end
+    end
+    return nothing
+end
+
+# 3D Iterator implementation
+function Base.iterate(iter::NeighborIterator3D)
+    # Start with dx=-1, dy=-1, dz=-1
+    dx, dy, dz = -1, -1, -1
+    neighborX = iter.centerCellX + dx
+    neighborY = iter.centerCellY + dy
+    neighborZ = iter.centerCellZ + dz
+    
+    if 0 <= neighborX < iter.gridX && 0 <= neighborY < iter.gridY && 0 <= neighborZ < iter.gridZ
+        neighborCell = neighborZ * iter.gridX * iter.gridY + neighborY * iter.gridX + neighborX + 1
+        startPos = iter.cellOffset[neighborCell] + 1
+        endPos = iter.cellOffset[neighborCell + 1]
+        if startPos <= endPos
+            particleIdx = iter.permTable[startPos]
+            state = NeighborIteratorState(neighborCell, startPos, dx, dy, dz)
+            return (particleIdx, state)
+        end
+    end
+    
+    # If first cell is empty, find next valid cell/particle
+    return iterate_next_3d(iter, dx, dy, dz, 0)
+end
+
+function Base.iterate(iter::NeighborIterator3D, state::NeighborIteratorState)
+    # Try next particle in current cell
+    particlePos = state.particleIdx + 1
+    endPos = iter.cellOffset[state.cellIdx + 1]
+    if particlePos <= endPos
+        particleIdx = iter.permTable[particlePos]
+        newState = NeighborIteratorState(state.cellIdx, particlePos, state.dx, state.dy, state.dz)
+        return (particleIdx, newState)
+    end
+    
+    # Move to next cell
+    return iterate_next_3d(iter, state.dx, state.dy, state.dz, particlePos)
+end
+
+function iterate_next_3d(iter::NeighborIterator3D, start_dx::Int, start_dy::Int, start_dz::Int, start_pos::Int)
+    # Continue from current position
+    for dz in start_dz:1, dy in (dz == start_dz ? start_dy : -1):1, dx in (dz == start_dz && dy == start_dy ? start_dx : -1):1
+        if dz == start_dz && dy == start_dy && dx == start_dx && start_pos > 0
+            continue  # Skip the current position we just finished
+        end
+        
+        neighborX = iter.centerCellX + dx
+        neighborY = iter.centerCellY + dy
+        neighborZ = iter.centerCellZ + dz
+        
+        if 0 <= neighborX < iter.gridX && 0 <= neighborY < iter.gridY && 0 <= neighborZ < iter.gridZ
+            neighborCell = neighborZ * iter.gridX * iter.gridY + neighborY * iter.gridX + neighborX + 1
+            startPos = iter.cellOffset[neighborCell] + 1
+            endPos = iter.cellOffset[neighborCell + 1]
+            if startPos <= endPos
+                particleIdx = iter.permTable[startPos]
+                state = NeighborIteratorState(neighborCell, startPos, dx, dy, dz)
+                return (particleIdx, state)
+            end
+        end
+    end
+    return nothing
+end
+
+# Constructor functions for the iterators
+function iterateNeighbors(mesh::UnstructuredMeshObject{P, 1, S, DT, NN}, symbol::Symbol, x) where {P, S, DT, NN<:NeighborsCellLinked}
+    """
+    Create a non-allocating iterator for particles in the 3 neighboring cells in 1D.
+    """
+    
+    cell = assignCell(mesh._neighbors, x)
+    cells = (cell - 1, cell, cell + 1)
+
+    return NeighborIterator1D(
+        mesh._neighbors,
+        mesh._neighbors.permTable[symbol],
+        mesh._neighbors.cellOffset[symbol],
+        cells,
+        mesh._neighbors.grid[1]
+    )
 end
 
 function iterateNeighbors(mesh::UnstructuredMeshObject{P, 2, S, DT, NN}, symbol::Symbol, x, y) where {P, S, DT, NN<:NeighborsCellLinked}
     """
-    Get all particles in the 9 neighboring cells in 2D.
+    Create a non-allocating iterator for particles in the 9 neighboring cells in 2D.
     """
 
     cell = assignCell(mesh._neighbors, x, y)
     gridX, gridY = mesh._neighbors.grid
     
-    # Generate all 9 neighboring cell indices correctly
-    allNeighbors = Int[]
-    
     # Convert linear cell index to 2D coordinates
     cellX = (cell - 1) % gridX
     cellY = div(cell - 1, gridX)
-    
-    # Check all 3x3 neighborhood
-    for dy in -1:1, dx in -1:1
-        neighborX = cellX + dx
-        neighborY = cellY + dy
-        
-        # Check bounds
-        if 0 <= neighborX < gridX && 0 <= neighborY < gridY
-            neighborCell = neighborY * gridX + neighborX + 1
-            
-            # Get particles in this cell
-            startPos = mesh._neighbors.cellOffset[symbol][neighborCell] + 1
-            endPos = mesh._neighbors.cellOffset[symbol][neighborCell + 1]
-            
-            # Get the actual particle indices from the permutation table
-            for pos in startPos:endPos
-                if pos <= length(mesh._neighbors.permTable[symbol])
-                    particleIdx = mesh._neighbors.permTable[symbol][pos]
-                    push!(allNeighbors, particleIdx)
-                end
-            end
-        end
-    end
 
-    return allNeighbors
+    return NeighborIterator2D(
+        mesh._neighbors,
+        mesh._neighbors.permTable[symbol],
+        mesh._neighbors.cellOffset[symbol],
+        cellX,
+        cellY,
+        gridX,
+        gridY
+    )
 end
 
 function iterateNeighbors(mesh::UnstructuredMeshObject{P, 3, S, DT, NN}, symbol::Symbol, x, y, z) where {P, S, DT, NN<:NeighborsCellLinked}
     """
-    Get all particles in the 27 neighboring cells in 3D.
+    Create a non-allocating iterator for particles in the 27 neighboring cells in 3D.
     """
 
     cell = assignCell(mesh._neighbors, x, y, z)
     gridX, gridY, gridZ = mesh._neighbors.grid
-    
-    # Generate all 27 neighboring cell indices correctly
-    allNeighbors = Int[]
     
     # Convert linear cell index to 3D coordinates
     cellX = (cell - 1) % gridX
     temp = div(cell - 1, gridX)
     cellY = temp % gridY
     cellZ = div(temp, gridY)
-    
-    # Check all 3x3x3 neighborhood
-    for dz in -1:1, dy in -1:1, dx in -1:1
-        neighborX = cellX + dx
-        neighborY = cellY + dy
-        neighborZ = cellZ + dz
-        
-        # Check bounds
-        if 0 <= neighborX < gridX && 0 <= neighborY < gridY && 0 <= neighborZ < gridZ
-            neighborCell = neighborZ * gridX * gridY + neighborY * gridX + neighborX + 1
-            
-            # Get particles in this cell
-            startPos = mesh._neighbors.cellOffset[symbol][neighborCell] + 1
-            endPos = mesh._neighbors.cellOffset[symbol][neighborCell + 1]
-            
-            # Get the actual particle indices from the permutation table
-            for pos in startPos:endPos
-                if pos <= length(mesh._neighbors.permTable[symbol])
-                    particleIdx = mesh._neighbors.permTable[symbol][pos]
-                    push!(allNeighbors, particleIdx)
-                end
-            end
-        end
-    end
 
-    return allNeighbors
+    return NeighborIterator3D(
+        mesh._neighbors,
+        mesh._neighbors.permTable[symbol],
+        mesh._neighbors.cellOffset[symbol],
+        cellX,
+        cellY,
+        cellZ,
+        gridX,
+        gridY,
+        gridZ
+    )
 end
+
+# Convenience functions for backward compatibility
+"""
+    collectNeighbors(iterator) -> Vector{Int}
+    
+Convert a neighbor iterator to a vector of particle indices.
+Use this when you need the old vector-based API.
+"""
+collectNeighbors(iterator) = collect(iterator)
+
+"""
+    collectNeighbors(mesh, symbol, coordinates...) -> Vector{Int}
+    
+Get all neighboring particles as a vector (allocating version).
+"""
+collectNeighbors(mesh, symbol, coords...) = collect(iterateNeighbors(mesh, symbol, coords...))
