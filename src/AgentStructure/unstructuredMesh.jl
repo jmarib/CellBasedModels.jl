@@ -303,6 +303,7 @@ struct UnstructuredMeshField{
             P, DT,
             PR, PRN, PRC,
             IDVI, IDAI,    
+            # VI1, VI2, VI3, VI4,
             AI, VB, SI, VVNT, AB            
         }
     _p::PR
@@ -312,9 +313,14 @@ struct UnstructuredMeshField{
     _id::IDVI
     _idMax::IDAI
 
+    # _nodes1::VI1
+    # _nodes2::VI2
+    # _nodes3::VI3
+    # _nodes4::VI4
+
     _N::AI
     _NCache::AI
-    _FlagsRemoved::VB
+    _FlagsSurvived::VB
     _NRemoved::AI
     _NRemovedThread::SI
     _NAdded::AI
@@ -346,7 +352,7 @@ function UnstructuredMeshField(
 
     _N = Threads.Atomic{Int}(N)
     _NCache = Threads.Atomic{Int}(NCache)
-    _FlagsRemoved = zeros(Bool, NCache)
+    _FlagsSurvived = ones(Bool, NCache)
     _NRemoved = Threads.Atomic{Int}(0)
     _NRemovedThread = SizedVector{Threads.nthreads(), Int}(zeros(Int, Threads.nthreads()))
     _NAdded = Threads.Atomic{Int}(0)
@@ -375,7 +381,7 @@ function UnstructuredMeshField(
 
     AI = typeof(_N)
     AB = typeof(_FlagOverflow)
-    VB = typeof(_FlagsRemoved)
+    VB = typeof(_FlagsSurvived)
     SI = typeof(_NRemovedThread)
     VVNT = typeof(_AddedAgents)
 
@@ -398,7 +404,7 @@ function UnstructuredMeshField(
 
             _N,
             _NCache,
-            _FlagsRemoved,
+            _FlagsSurvived,
             _NRemoved,
             _NRemovedThread,
             _NAdded,
@@ -418,7 +424,7 @@ function UnstructuredMeshField(
 
             _N,
             _NCache,
-            _FlagsRemoved,
+            _FlagsSurvived,
             _NRemoved,
             _NRemovedThread,
             _NAdded,
@@ -446,7 +452,7 @@ function UnstructuredMeshField(
 
     AI = typeof(_N)
     AB = typeof(_FlagOverflow)
-    VB = typeof(_FlagsRemoved)
+    VB = typeof(_FlagsSurvived)
     SI = typeof(_NRemovedThread)
     VVNT = typeof(_AddedAgents)
 
@@ -465,7 +471,7 @@ function UnstructuredMeshField(
 
             _N,
             _NCache,
-            _FlagsRemoved,
+            _FlagsSurvived,
             _NRemoved,
             _NRemovedThread,
             _NAdded,
@@ -494,7 +500,7 @@ function Base.show(io::IO, x::UnstructuredMeshField{
     println(io, @sprintf("\t%-25s %-15s", "_idMax", IDAI))
     println(io, @sprintf("\t%-25s %-15s", "_N", AI))
     println(io, @sprintf("\t%-25s %-15s", "_NCache", AI))
-    println(io, @sprintf("\t%-25s %-15s", "_FlagsRemoved", VB))
+    println(io, @sprintf("\t%-25s %-15s", "_FlagsSurvived", VB))
     println(io, @sprintf("\t%-25s %-15s", "_NRemoved", AI))
     println(io, @sprintf("\t%-25s %-15s", "_NRemovedThread", SI))
     println(io, @sprintf("\t%-25s %-15s", "_NAdded", AI))
@@ -536,7 +542,7 @@ function show(io::IO, ::Type{UnstructuredMeshField{
     print(io, "_idMax::", IDAI, ", ")
     print(io, "_N::", AI, ", ")
     print(io, "_NCache::", AI, ", ")
-    print(io, "_FlagsRemoved::", VB, ", ")
+    print(io, "_FlagsSurvived::", VB, ", ")
     print(io, "_NRemoved::", AI, ", ")
     print(io, "_NRemovedThread::", SI, ", ")
     print(io, "_NAdded::", AI, ", ")
@@ -629,7 +635,7 @@ function Base.copy(field::UnstructuredMeshField)
 
         field._N,
         field._NCache,
-        field._FlagsRemoved,
+        field._FlagsSurvived,
         field._NRemoved,
         field._NRemovedThread,
         field._NAdded,
@@ -656,7 +662,7 @@ function partialCopy(field::UnstructuredMeshField, args)
 
         field._N,
         field._NCache,
-        field._FlagsRemoved,
+        field._FlagsSurvived,
         field._NRemoved,
         field._NRemovedThread,
         field._NAdded,
@@ -683,7 +689,7 @@ function Base.similar(field::UnstructuredMeshField)
 
         field._N,
         field._NCache,
-        field._FlagsRemoved,
+        field._FlagsSurvived,
         field._NRemoved,
         field._NRemovedThread,
         field._NAdded,
@@ -708,7 +714,7 @@ function Base.zero(field::UnstructuredMeshField)
 
         field._N,
         field._NCache,
-        field._FlagsRemoved,
+        field._FlagsSurvived,
         field._NRemoved,
         field._NRemovedThread,
         field._NAdded,
@@ -851,41 +857,41 @@ function unpack_voa(x::UnstructuredMeshField, i)
     x._p[i]
 end
 
-# updateAdditions!
-function updateAdditions!(mesh::UnstructuredMeshField)
+# # updateAdditions!
+# function updateAdditions!(mesh::UnstructuredMeshField)
 
-    N = mesh._N[]
-    NNew = sum(mesh._NAddedThread)
+#     N = mesh._N[]
+#     NNew = sum(mesh._NAddedThread)
 
-    # Check for overflow and increase cache
-    if N + NNew > mesh._NCache[]
-        warning("MeshObjectField overflow: current N=$(N), added N=$(NNew), NCache=$(mesh._NCache[]). If this is happening constantly, consider allocating with NCache before the simulation.")
-        for i in 1:mesh._NP
-            append!(mesh._p[i], similar(mesh._p[i], NNew))
-        end
-        mesh._NCache[] += NNew
-    end
+#     # Check for overflow and increase cache
+#     if N + NNew > mesh._NCache[]
+#         warning("MeshObjectField overflow: current N=$(N), added N=$(NNew), NCache=$(mesh._NCache[]). If this is happening constantly, consider allocating with NCache before the simulation.")
+#         for i in 1:mesh._NP
+#             append!(mesh._p[i], similar(mesh._p[i], NNew))
+#         end
+#         mesh._NCache[] += NNew
+#     end
 
-    # Add new agents
-    NCum = [0, cumsum(mesh._NAddedThread)...][1:end-1]
-    Threads.@threads for (offset, NThread, field) in zip(NCum, mesh._NAddedThread, mesh._AddedAgents)
-        for i in 1:NThread
-            idx = N + offset + 1
-            agent = field[i]
-            for (name, value) in pairs(agent)
-                mesh._p[name][idx] = value
-            end
-            N += 1
-        end
-    end
+#     # Add new agents
+#     NCum = [0, cumsum(mesh._NAddedThread)...][1:end-1]
+#     Threads.@threads for (offset, NThread, field) in zip(NCum, mesh._NAddedThread, mesh._AddedAgents)
+#         for i in 1:NThread
+#             idx = N + offset + 1
+#             agent = field[i]
+#             for (name, value) in pairs(agent)
+#                 mesh._p[name][idx] = value
+#             end
+#             N += 1
+#         end
+#     end
 
-    # Reset added and removed counters
-    mesh._N[] += NNew 
-    mesh._NAdded[] = 0
-    fill!(mesh._NAddedThread, 0)
+#     # Reset added and removed counters
+#     mesh._N[] += NNew 
+#     mesh._NAdded[] = 0
+#     fill!(mesh._NAddedThread, 0)
 
-    return
-end
+#     return
+# end
 
 ######################################################################################################
 # UnstructuredMeshObject
@@ -904,7 +910,7 @@ object2mesh(::Type{<:UnstructuredMeshObject}) = UnstructuredMesh
 
 function UnstructuredMeshObject(
         mesh::UnstructuredMesh{D, S};
-        neighbors::Union{Nothing, AbstractNeighbors}=nothing,
+        neighbors::AbstractNeighbors=NeighborsFull(),
         kwargs...
     ) where {D, S}
 
@@ -953,12 +959,13 @@ function UnstructuredMeshObject(
     end
 
     params = NamedTuple{tuple(keys(mesh._p)...)}(fields)
+    neighbors_ = initNeighbors(D, neighbors, params)
 
     return UnstructuredMeshObject{
-            P, D, S, DT, typeof(neighbors),
+            P, D, S, DT, typeof(neighbors_),
             typeof(params)
         }(
-            params, neighbors
+            params, neighbors_
         )
 end
 
@@ -1115,7 +1122,7 @@ function Base.copy(field::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P
         NamedTuple{keys(field._p)}(
             copy(getfield(field._p, name)) for name in keys(field._p)
         ),
-        nothing
+        field._neighbors
     )
 
 end
@@ -1126,7 +1133,7 @@ function partialCopy(field::UnstructuredMeshObject{P, D, S, DT, NN, PAR}, copyAr
         NamedTuple{keys(field._p)}(
             partialCopy(getfield(field._p, name)) for name in keys(field._p)
         ),
-        nothing
+        field._neighbors
     )
 
 end
@@ -1138,7 +1145,7 @@ function Base.similar(field::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where
         NamedTuple{keys(field._p)}(
             similar(getfield(field._p, name)) for name in keys(field._p)
         ),
-        nothing
+        field._neighbors
     )
 
 end
@@ -1149,7 +1156,7 @@ function Base.similar(field::UnstructuredMeshObject{P, D, S, DT, NN, PAR}, _) wh
         NamedTuple{keys(field._p)}(
             similar(getfield(field._p, name)) for name in keys(field._p)
         ),
-        nothing
+        field._neighbors
     )
 
 end
@@ -1161,7 +1168,7 @@ function Base.zero(field::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P
         NamedTuple{keys(field._p)}(
             zero(getfield(field._p, name)) for name in keys(field._p)
         ),
-        nothing
+        field._neighbors
     )
 
 end
@@ -1328,46 +1335,46 @@ function unpack_voa(x::UnstructuredMeshObject, i, j, n)
     x[i]._p[j]
 end
 
-# updateAdditions!
-function updateAdditions!(
-        mesh::UnstructuredMeshObject{P, D, S, DT, NN, PAR}
-    ) where {P, D, S, DT, NN, PAR}
+# # updateAdditions!
+# function updateAdditions!(
+#         mesh::UnstructuredMeshObject{P, D, S, DT, NN, PAR}
+#     ) where {P, D, S, DT, NN, PAR}
 
-    for name in names(mesh._p)
-        field = getfield(mesh._p, name)
-        if field !== nothing
-            updateAdditions!(field)
-        end
-    end
+#     for name in names(mesh._p)
+#         field = getfield(mesh._p, name)
+#         if field !== nothing
+#             updateAdditions!(field)
+#         end
+#     end
 
-    mesh
-end
+#     mesh
+# end
 
-# updateAdditions!
-function updateRemovals!(
-        mesh::UnstructuredMeshObject{P, D, S, DT, NN, PAR}
-    ) where {P, D, S, DT, NN, PAR}
+# # updateAdditions!
+# function updateRemovals!(
+#         mesh::UnstructuredMeshObject{P, D, S, DT, NN, PAR}
+#     ) where {P, D, S, DT, NN, PAR}
 
-    for name in names(mesh._p)
-        field = getfield(mesh._p, name)
-        if field !== nothing
-            updateRemovals!(field)
-        end
-    end
+#     for name in names(mesh._p)
+#         field = getfield(mesh._p, name)
+#         if field !== nothing
+#             updateRemovals!(field)
+#         end
+#     end
 
-    mesh
-end
+#     mesh
+# end
 
-# update!
-function update!(
-        mesh::UnstructuredMeshObject{P, D, S, DT, NN, PAR}
-    ) where {P, D, S, DT, NN, PAR}
+# # update!
+# function update!(
+#         mesh::UnstructuredMeshObject{P, D, S, DT, NN, PAR}
+#     ) where {P, D, S, DT, NN, PAR}
 
-    updateAdditions!(mesh)
-    updateRemovals!(mesh)
+#     updateAdditions!(mesh)
+#     updateRemovals!(mesh)
 
-    mesh
-end
+#     mesh
+# end
 
 # ######################################################################################################
 # # ForwardDiff Support

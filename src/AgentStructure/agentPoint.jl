@@ -158,7 +158,7 @@ end
 ##########################################################################
 
 iterateAgents(mesh::AgentPointObject) = 1:mesh.n._N[]
-iterateNeighbors(mesh::AgentPointObject, agentIndex::Integer) = 1:mesh.n._N[]
+iterateNeighbors(mesh::AgentPointObject, agentIndex::Integer) = iterateNeighbors(mesh, :n, agentIndex)
 
 @generated function addAgent!(
     meshObject::AgentPointObject{P, D, DT, NN, PN},
@@ -195,7 +195,7 @@ function removeAgent!(
 )
 
     threadId = Threads.threadid()
-    meshObject.n._RemovedAgents[agentIndex] = true
+    meshObject.n._FlagsSurvived[agentIndex] = false
     meshObject.n._NRemovedThread[threadId] += 1
 
 end

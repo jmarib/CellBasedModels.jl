@@ -3,6 +3,6 @@ module CellBasedModelsMakieExt
     using ..CellBasedModels
     using Makie
 
-    # include("./makiePlots.jl")
+    include("../src/plotting/plotting.jl")
 
 end

@@ -2,6 +2,7 @@ import CellBasedModels: DATATYPE
 import CellBasedModels: lengthCache, lengthProperties, sizeFull, sizeFullCache, nCopyProperties
 import CellBasedModels: UnstructuredMeshField, UnstructuredMeshFieldStyle, UnstructuredMeshObject, UnstructuredMeshObjectStyle, unpack_voa
 import CellBasedModels: toCPU, toGPU, CPU, CPUSinglethread, CPUMultithreading
+import CellBasedModels: initNeighbors
 
 lengthCache(field::UnstructuredMeshField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._NCache[1]
 lengthCache(field::UnstructuredMeshField{P}) where {P<:GPUCuDevice} = field._NCache[1]
@@ -94,7 +95,7 @@ function toCPU(field::UnstructuredMeshField{P}) where {P<:GPUCuda}
         field._idMax          === nothing ? nothing : Threads.Atomic{Int}(Array(field._idMax)[1]),
         field._N              === nothing ? nothing : Threads.Atomic{Int}(Array(field._N)[1]),
         field._NCache         === nothing ? nothing : Threads.Atomic{Int}(Array(field._NCache)[1]),
-        field._FlagsRemoved   === nothing ? nothing : Vector{Bool}(field._FlagsRemoved),
+        field._FlagsSurvived   === nothing ? nothing : Vector{Bool}(field._FlagsSurvived),
         field._NRemoved       === nothing ? nothing : Threads.Atomic{Int}(0),
         field._NRemovedThread === nothing ? nothing : SizedVector{Threads.nthreads(), Int}(zeros(Int, Threads.nthreads())),
         field._NAdded         === nothing ? nothing : Threads.Atomic{Int}(0),
@@ -113,7 +114,7 @@ function toGPU(field::UnstructuredMeshField{P}) where {P<:CPU}
         field._idMax          === nothing ? nothing : CUDA.CuArray([field._idMax[]]),
         field._N              === nothing ? nothing : CUDA.CuArray([field._N[]]),
         field._NCache         === nothing ? nothing : CUDA.CuArray([field._NCache[]]),
-        field._FlagsRemoved   === nothing ? nothing : CUDA.CuArray(field._FlagsRemoved),
+        field._FlagsSurvived   === nothing ? nothing : CUDA.CuArray(field._FlagsSurvived),
         field._NRemoved       === nothing ? nothing : CUDA.CuArray([0]),
         field._NRemovedThread === nothing ? nothing : CUDA.zeros(0),
         field._NAdded         === nothing ? nothing : CUDA.CuArray([0]),
@@ -134,13 +135,14 @@ function toCPU(field::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P<:GP
     p = NamedTuple{keys(field._p)}(
         toCPU(p) for p in values(field._p)
     )
-    # n = toCPU(field.neighbors)
+    n = initNeighbors(field._neighbors, p)
 
     PARNew = typeof(p)
+    NNNew = typeof(n)
 
-    UnstructuredMeshObject{PNew, D, S, DTNew, NN, PARNew}(
+    UnstructuredMeshObject{PNew, D, S, DTNew, NNNew, PARNew}(
         p,
-        nothing
+        n
     )
 end
 
@@ -152,12 +154,13 @@ function toGPU(field::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P<:CP
     p = NamedTuple{keys(field._p)}(
         toGPU(p) for p in values(field._p)
     )
-    # n = toGPU(field.neighbors)
+    n = initNeighborsGPU(field._neighbors, p)
 
     PARNew = typeof(p)
+    NNNew = typeof(n)
 
-    UnstructuredMeshObject{PNew, D, S, DTNew, NN, PARNew}(
+    UnstructuredMeshObject{PNew, D, S, DTNew, NNNew, PARNew}(
         p,
-        nothing
+        n
     )
 end

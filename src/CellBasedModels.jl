@@ -50,6 +50,11 @@ module CellBasedModels
     export Node, Edge, Face, Volume, Agent
     export UnstructuredMesh, UnstructuredMeshField, UnstructuredMeshObject
     include("./AgentStructure/unstructuredMesh.jl")
+    export iterateNeighbors, getNeighbors
+    export NeighborsFull
+    include("./neighbors/neighborsFull.jl")
+    export NeighborsCellLinked
+    include("./neighbors/neighborsCellLinked.jl")
     # export StructuredMesh, StructuredMeshObject
     # include("./AgentStructure/structuredMesh.jl")
     # export MultiMesh, MultiMeshObject
