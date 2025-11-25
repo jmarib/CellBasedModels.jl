@@ -53,6 +53,25 @@ function iterateNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol:
 
 end
 
+function iterateNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol::Symbol, ::Any) where {P, D, S, DT, NN<:NeighborsFull}
+
+    return 1:lengthProperties(mesh._p[symbol])
+
+end
+
+function iterateNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol::Symbol, ::Any, ::Any) where {P, D, S, DT, NN<:NeighborsFull}
+
+    return 1:lengthProperties(mesh._p[symbol])
+
+end
+
+function iterateNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol::Symbol, ::Any, ::Any, ::Any) where {P, D, S, DT, NN<:NeighborsFull}
+
+    return 1:lengthProperties(mesh._p[symbol])
+
+end
+
+
 function getNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol::Symbol, index::Int) where {P, D, S, DT, NN<:NeighborsFull}
 
     return collect(iterateNeighbors(mesh, symbol, index))
