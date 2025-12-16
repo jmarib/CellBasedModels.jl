@@ -3,10 +3,12 @@ using Symbolics
 
 # --- normalize declared symbol forms (x, p.p1, p[i1], p[i1,i2]) -> valid Symbol + original Expr key
 function _normalize_declared_symbol(symex)
+    # plain Symbol
     if symex isa Symbol
         return (symex, symex)
     end
 
+    # dotted: p.p1, q.r.s, ...
     if symex isa Expr && symex.head == :.
         parts = String[]
         cur = symex
@@ -22,6 +24,7 @@ function _normalize_declared_symbol(symex)
         return (valid, symex)
     end
 
+    # indexing: p[i1], p[i1,i2], ...
     if symex isa Expr && symex.head == :ref
         base = symex.args[1]
         idxs = symex.args[2:end]
@@ -34,6 +37,7 @@ function _normalize_declared_symbol(symex)
     error("diffsym: unsupported symbol form in `symbols=`: $symex")
 end
 
+# collect LHS of assignments in a block
 function _collect_assigned_lhs(ex)
     lhs = Any[]
     MacroTools.postwalk(ex) do node
@@ -45,44 +49,40 @@ function _collect_assigned_lhs(ex)
     lhs
 end
 
+# replace nodes according to a Dict (Expr/Symbol keys)
 _replace(ex, dict) = MacroTools.postwalk(ex) do node
     get(dict, node, node)
 end
 
 # ------------------------------------------------------------
-# NEW: AST -> Symbolics interpreter (no eval)
+# AST -> Symbolics interpreter (no eval)
 # ------------------------------------------------------------
 
 # resolve a called function symbol like :sqrt, :+, :*, :^, :-, :/
-# without eval: only allow Base.<name> (you can extend this table if needed)
+# without eval: only allow Base.<name> (extend if you want more)
 function _resolve_base_fun(f::Symbol)
-    isdefined(Base, f) || error("diffsym: unsupported function/operator `$f` in symbolic block (not in Base)")
+    isdefined(Base, f) || error("diffsym: unsupported function/operator `$f` in symbolic block (not in Base). This is most probably a custom function and symbolics cannot know its derivative, only functions from base are allowed (e.g. /, *, sqrt) inside the macro context.")
     return getfield(Base, f)
 end
 
 # Convert a Julia Expr into a Symbolics expression using an environment.
 function _to_symbolics(ex, env::Dict{Symbol,Any})
-    # ignore line nodes
     ex isa LineNumberNode && return nothing
 
-    # literals
     if ex isa Number
         return ex
     end
 
-    # variable reference
     if ex isa Symbol
         haskey(env, ex) || error("diffsym: symbol `$ex` not found in symbolic environment. Declare it in `symbols=` or define it in the block.")
         return env[ex]
     end
 
-    # expression forms
     if ex isa Expr
         if ex.head == :call
             f = ex.args[1]
             args = ex.args[2:end]
 
-            # function can be Symbol (sqrt, +, ^, …). If you need more, extend here.
             if f isa Symbol
                 fn = _resolve_base_fun(f)
                 sargs = Any[]
@@ -97,7 +97,6 @@ function _to_symbolics(ex, env::Dict{Symbol,Any})
             end
 
         elseif ex.head == :block
-            # shouldn’t normally be called here; handled by block interpreter
             last = nothing
             for stmt in ex.args
                 val = _to_symbolics(stmt, env)
@@ -117,7 +116,6 @@ end
 function _interpret_block(sym_block::Expr, declared_vars::Dict{Symbol,Any})
     env = Dict{Symbol,Any}(declared_vars)
 
-    # sym_block is typically Expr(:block, ...)
     sym_block.head == :block || error("diffsym: expected a begin/end block")
 
     for stmt in sym_block.args
@@ -129,12 +127,22 @@ function _interpret_block(sym_block::Expr, declared_vars::Dict{Symbol,Any})
             lhs isa Symbol || error("diffsym: only simple `name = expr` assignments supported in block for symbolic pass; got `$lhs`")
             env[lhs] = _to_symbolics(rhs, env)
         else
-            # allow standalone expressions (ignored unless you want side effects)
             _to_symbolics(stmt, env)
         end
     end
 
     return env
+end
+
+# Map a derivative "wrt" entry (Symbol or Expr like p.p1 / p[i]) to the internal valid Symbol.
+function _wrt_to_valid(wrt, orig_to_valid::Dict{Any,Symbol}, valid_to_orig::Dict{Symbol,Any})
+    if wrt isa Symbol
+        haskey(valid_to_orig, wrt) || error("diffsym: differentiation variable `$wrt` must appear in `symbols=`")
+        return wrt
+    else
+        haskey(orig_to_valid, wrt) || error("diffsym: differentiation variable `$wrt` must appear in `symbols=`")
+        return orig_to_valid[wrt]
+    end
 end
 
 # ------------------------------------------------------------
@@ -143,6 +151,7 @@ end
 macro diffsym(block, args...)
     block isa Expr || error("diffsym: must pass a `begin ... end` block")
 
+    # --- extract keywords
     symbols_ex = nothing
     derivs_ex  = nothing
     for a in args
@@ -157,21 +166,25 @@ macro diffsym(block, args...)
     symbols_ex === nothing && error("diffsym: missing `symbols=(...)`")
     derivs_ex  === nothing && error("diffsym: missing `derivatives=(...)`")
 
+    # --- validate symbols tuple
     (symbols_ex isa Expr && symbols_ex.head == :tuple) ||
         error("diffsym: `symbols=` must be a tuple, e.g. symbols=(x, y, p.p1)")
 
+    # --- validate derivatives named tuple literal
     (derivs_ex isa Expr && derivs_ex.head == :tuple) ||
         error("diffsym: `derivatives=` must be a named tuple literal, e.g. derivatives=(dc_dx=(c,x),)")
 
+    # --- build mappings for declared symbols
     declared = [_normalize_declared_symbol(s) for s in symbols_ex.args]  # (valid, original_expr)
-    orig_to_valid = Dict{Any, Symbol}()
-    valid_to_orig = Dict{Symbol, Any}()
+    orig_to_valid = Dict{Any, Symbol}()   # :(p.p1) => :p__p1
+    valid_to_orig = Dict{Symbol, Any}()   # :p__p1 => :(p.p1)
 
     for (v, o) in declared
         orig_to_valid[o] = v
         valid_to_orig[v] = o
     end
 
+    # --- reject assignments to declared symbols inside the user block
     assigned = _collect_assigned_lhs(block)
     for L in assigned
         if haskey(orig_to_valid, L) || (L isa Symbol && haskey(valid_to_orig, L) && valid_to_orig[L] isa Symbol)
@@ -179,10 +192,12 @@ macro diffsym(block, args...)
         end
     end
 
-    # rewrite dotted/ref symbols for the symbolic pass
+    # --- symbolic-pass rewrite: p.p1 -> p__p1, p[i] -> p_i_
     sym_block = _replace(block, orig_to_valid)
 
-    deriv_specs = Vector{Tuple{Symbol, Symbol, Symbol}}() # (outname, f_sym, x_sym)
+    # --- parse derivative requests
+    # store (outname, f_sym, wrt_valid_sym)
+    deriv_specs = Vector{Tuple{Symbol, Symbol, Symbol}}()
     for entry in derivs_ex.args
         (entry isa Expr && entry.head == :(=)) ||
             error("diffsym: each derivative entry must be like `dc_dx = (c, x)`")
@@ -193,12 +208,12 @@ macro diffsym(block, args...)
             error("diffsym: `$outname` must be a 2-tuple `(f, x)`")
 
         f = pair.args[1]
-        x = pair.args[2]
-        (f isa Symbol) || error("diffsym: `$outname`: first element must be a Symbol (e.g. c)")
-        (x isa Symbol) || error("diffsym: `$outname`: second element must be a Symbol (e.g. x)")
+        wrt = pair.args[2]
 
-        haskey(valid_to_orig, x) || error("diffsym: `$outname`: `$x` must appear in `symbols=`")
-        push!(deriv_specs, (outname, f, x))
+        (f isa Symbol) || error("diffsym: `$outname`: first element must be a Symbol (e.g. c)")
+
+        wrt_valid = _wrt_to_valid(wrt, orig_to_valid, valid_to_orig)
+        push!(deriv_specs, (outname, f, wrt_valid))
     end
 
     # ------------------------------------------------------------
@@ -206,23 +221,24 @@ macro diffsym(block, args...)
     # ------------------------------------------------------------
     declared_vars = Dict{Symbol,Any}()
     for (v, _) in declared
-        declared_vars[v] = Symbolics.variable(v)  # programmatic variable creation :contentReference[oaicite:2]{index=2}
+        declared_vars[v] = Symbolics.variable(v)
     end
 
     env = _interpret_block(sym_block, declared_vars)
 
     deriv_assign_exprs = Expr[]
-    for (outname, f, x) in deriv_specs
+    for (outname, f, wrt_valid) in deriv_specs
         haskey(env, f) || error("diffsym: requested derivative of `$f`, but `$f` is not defined in the block")
-        fexpr = env[f]
-        xvar  = env[x]
 
-        d = Symbolics.expand_derivatives(Symbolics.Differential(xvar)(fexpr))  # :contentReference[oaicite:3]{index=3}
+        fexpr = env[f]
+        xvar  = declared_vars[wrt_valid]
+
+        d = Symbolics.expand_derivatives(Symbolics.Differential(xvar)(fexpr))
         d = Symbolics.simplify(d)
 
         ex_d = Symbolics.toexpr(d)
 
-        # substitute valid names back to original dotted/bracket expressions
+        # substitute valid symbols back to original dotted/bracket expressions
         ex_d_orig = MacroTools.postwalk(ex_d) do node
             if node isa Symbol && haskey(valid_to_orig, node)
                 valid_to_orig[node]
@@ -234,6 +250,7 @@ macro diffsym(block, args...)
         push!(deriv_assign_exprs, :($outname = $ex_d_orig))
     end
 
+    # --- final expansion: original user code + concrete derivative expressions
     return esc(quote
         begin
             $block
