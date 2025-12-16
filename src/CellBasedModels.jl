@@ -13,6 +13,8 @@ module CellBasedModels
     include("./auxiliar/parameter.jl")
     export @diffsym
     include("./auxiliar/diffsym.jl")
+    export @diffauto
+    include("./auxiliar/diffauto.jl")
     # include("./auxiliar/indexing.jl")
     # include("./auxiliar/meta.jl")
     # include("./auxiliar/recursiveCachedArrays.jl")

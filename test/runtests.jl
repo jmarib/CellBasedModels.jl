@@ -12,7 +12,8 @@ benchmark = true #just for internal optimizations
     using CUDA
     # include("testIndexing.jl")
     # include("testParameter.jl")
-    include("testDiffSym.jl")
+    # include("testDiffSym.jl")
+    include("testDiffAuto.jl")
 
     # include("testUnstructuredMesh.jl")
     # include("testUnstructuredMeshSCE.jl")
