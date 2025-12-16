@@ -3,7 +3,6 @@ using Symbolics
 
 # --- normalize declared symbol forms (x, p.p1, p[i1], p[i1,i2]) -> valid Symbol + original Expr key
 function _normalize_declared_symbol(symex)
-    # plain Symbol
     if symex isa Symbol
         return (symex, symex)
     end
@@ -37,12 +36,15 @@ function _normalize_declared_symbol(symex)
     error("diffsym: unsupported symbol form in `symbols=`: $symex")
 end
 
-# collect LHS of assignments in a block
-function _collect_assigned_lhs(ex)
-    lhs = Any[]
+# collect LHS of assignments in a block (only simple `x = ...`)
+function _collect_assigned_lhs_syms(ex)
+    lhs = Symbol[]
     MacroTools.postwalk(ex) do node
         if node isa Expr && node.head == :(=)
-            push!(lhs, node.args[1])
+            L = node.args[1]
+            if L isa Symbol
+                push!(lhs, L)
+            end
         end
         node
     end
@@ -55,26 +57,103 @@ _replace(ex, dict) = MacroTools.postwalk(ex) do node
 end
 
 # ------------------------------------------------------------
+# Symbol extraction (no need to declare `symbols=`)
+# ------------------------------------------------------------
+
+# Recursively collect "symbol-like" references from expressions:
+# - Symbols (x, y, p, i, ...)
+# - dotted Expr(:.) treated as atomic (p.p1)
+# - indexing Expr(:ref) treated as atomic (p[i])
+# Excludes:
+# - LHS assigned locals
+# - function name position in calls (f in f(a) is not a symbol)
+function _infer_free_symbols_from_block(block::Expr)
+    assigned = Set{Symbol}(_collect_assigned_lhs_syms(block))
+    seen = Set{Any}()
+    ordered = Any[]   # Any = Symbol or Expr(:.) or Expr(:ref)
+
+    function add_candidate(x)
+        if !(x in seen)
+            push!(ordered, x)
+            push!(seen, x)
+        end
+    end
+
+    function walk(ex; in_call_head::Bool=false)
+        ex isa LineNumberNode && return
+        ex isa Number && return
+
+        if ex isa Symbol
+            # ignore things that are assigned locals
+            if !(ex in assigned)
+                add_candidate(ex)
+            end
+            return
+        end
+
+        if ex isa Expr
+            # treat dotted/ref as atomic symbols
+            if ex.head == :. || ex.head == :ref
+                add_candidate(ex)
+                return
+            end
+
+            if ex.head == :(=)
+                # walk only RHS; LHS is local definition
+                walk(ex.args[2])
+                return
+            end
+
+            if ex.head == :call
+                # do NOT walk function position (args[1])
+                for a in ex.args[2:end]
+                    walk(a)
+                end
+                return
+            end
+
+            if ex.head == :block
+                for s in ex.args
+                    walk(s)
+                end
+                return
+            end
+
+            # generic Expr
+            for a in ex.args
+                walk(a)
+            end
+        end
+    end
+
+    walk(block)
+
+    # remove any assigned locals that slipped in (symbols only)
+    inferred = Any[]
+    for x in ordered
+        if x isa Symbol
+            x in assigned && continue
+        end
+        push!(inferred, x)
+    end
+    return inferred
+end
+
+# ------------------------------------------------------------
 # AST -> Symbolics interpreter (no eval)
 # ------------------------------------------------------------
 
-# resolve a called function symbol like :sqrt, :+, :*, :^, :-, :/
-# without eval: only allow Base.<name> (extend if you want more)
 function _resolve_base_fun(f::Symbol)
-    isdefined(Base, f) || error("diffsym: unsupported function/operator `$f` in symbolic block (not in Base). This is most probably a custom function and symbolics cannot know its derivative, only functions from base are allowed (e.g. /, *, sqrt) inside the macro context.")
+    isdefined(Base, f) || error("diffsym: unsupported function/operator `$f` in symbolic block (not in Base). ")
     return getfield(Base, f)
 end
 
-# Convert a Julia Expr into a Symbolics expression using an environment.
 function _to_symbolics(ex, env::Dict{Symbol,Any})
     ex isa LineNumberNode && return nothing
-
-    if ex isa Number
-        return ex
-    end
+    ex isa Number && return ex
 
     if ex isa Symbol
-        haskey(env, ex) || error("diffsym: symbol `$ex` not found in symbolic environment. Declare it in `symbols=` or define it in the block.")
+        haskey(env, ex) || error("diffsym: symbol `$ex` not found in symbolic environment. Declare it or ensure it is inferred.")
         return env[ex]
     end
 
@@ -95,7 +174,6 @@ function _to_symbolics(ex, env::Dict{Symbol,Any})
             else
                 error("diffsym: unsupported call head `$f` in symbolic block (only Base symbols supported)")
             end
-
         elseif ex.head == :block
             last = nothing
             for stmt in ex.args
@@ -112,10 +190,8 @@ function _to_symbolics(ex, env::Dict{Symbol,Any})
     error("diffsym: unsupported node in symbolic block: $ex")
 end
 
-# Interpret a begin-block with assignments into env.
 function _interpret_block(sym_block::Expr, declared_vars::Dict{Symbol,Any})
     env = Dict{Symbol,Any}(declared_vars)
-
     sym_block.head == :block || error("diffsym: expected a begin/end block")
 
     for stmt in sym_block.args
@@ -137,10 +213,10 @@ end
 # Map a derivative "wrt" entry (Symbol or Expr like p.p1 / p[i]) to the internal valid Symbol.
 function _wrt_to_valid(wrt, orig_to_valid::Dict{Any,Symbol}, valid_to_orig::Dict{Symbol,Any})
     if wrt isa Symbol
-        haskey(valid_to_orig, wrt) || error("diffsym: differentiation variable `$wrt` must appear in `symbols=`")
+        haskey(valid_to_orig, wrt) || error("diffsym: differentiation variable `$wrt` must appear in `symbols=` (or be inferable)")
         return wrt
     else
-        haskey(orig_to_valid, wrt) || error("diffsym: differentiation variable `$wrt` must appear in `symbols=`")
+        haskey(orig_to_valid, wrt) || error("diffsym: differentiation variable `$wrt` must appear in `symbols=` (or be inferable)")
         return orig_to_valid[wrt]
     end
 end
@@ -151,7 +227,7 @@ end
 macro diffsym(block, args...)
     block isa Expr || error("diffsym: must pass a `begin ... end` block")
 
-    # --- extract keywords
+    # --- extract keywords (symbols optional)
     symbols_ex = nothing
     derivs_ex  = nothing
     for a in args
@@ -160,19 +236,35 @@ macro diffsym(block, args...)
         elseif a isa Expr && a.head == :(=) && a.args[1] == :derivatives
             derivs_ex = a.args[2]
         else
-            error("diffsym: expected `symbols=(...)` and `derivatives=(...)`")
+            error("diffsym: expected `derivatives=(...)` and optionally `symbols=(...)`")
         end
     end
-    symbols_ex === nothing && error("diffsym: missing `symbols=(...)`")
-    derivs_ex  === nothing && error("diffsym: missing `derivatives=(...)`")
+    derivs_ex === nothing && error("diffsym: missing `derivatives=(...)`")
 
-    # --- validate symbols tuple
-    (symbols_ex isa Expr && symbols_ex.head == :tuple) ||
-        error("diffsym: `symbols=` must be a tuple, e.g. symbols=(x, y, p.p1)")
-
-    # --- validate derivatives named tuple literal
     (derivs_ex isa Expr && derivs_ex.head == :tuple) ||
         error("diffsym: `derivatives=` must be a named tuple literal, e.g. derivatives=(dc_dx=(c,x),)")
+
+    # If symbols not provided, infer them from the block + ensure wrt variables are included
+    if symbols_ex === nothing
+        inferred = _infer_free_symbols_from_block(block)  # Any[Symbol or Expr(:.) or Expr(:ref)]
+
+        # also include any wrt entries from derivatives, even if not used in the block
+        for entry in derivs_ex.args
+            (entry isa Expr && entry.head == :(=)) || error("diffsym: each derivative entry must be like `dc_dx = (c, x)`")
+            pair = entry.args[2]
+            (pair isa Expr && pair.head == :tuple && length(pair.args) == 2) ||
+                error("diffsym: `$(entry.args[1])` must be a 2-tuple `(f, x)`")
+            wrt = pair.args[2]
+            if !(wrt in inferred)
+                push!(inferred, wrt)
+            end
+        end
+
+        symbols_ex = Expr(:tuple, inferred...)
+    end
+
+    (symbols_ex isa Expr && symbols_ex.head == :tuple) ||
+        error("diffsym: `symbols=` must be a tuple, e.g. symbols=(x, y, p.p1)")
 
     # --- build mappings for declared symbols
     declared = [_normalize_declared_symbol(s) for s in symbols_ex.args]  # (valid, original_expr)
@@ -185,10 +277,17 @@ macro diffsym(block, args...)
     end
 
     # --- reject assignments to declared symbols inside the user block
-    assigned = _collect_assigned_lhs(block)
-    for L in assigned
+    # (now declared symbols include inferred free symbols; we only forbid assigning those)
+    assigned_lhs = Any[]
+    MacroTools.postwalk(block) do node
+        if node isa Expr && node.head == :(=)
+            push!(assigned_lhs, node.args[1])
+        end
+        node
+    end
+    for L in assigned_lhs
         if haskey(orig_to_valid, L) || (L isa Symbol && haskey(valid_to_orig, L) && valid_to_orig[L] isa Symbol)
-            error("diffsym: declared symbol `$L` is assigned inside the block; not allowed")
+            error("diffsym: declared/inferred symbol `$L` is assigned inside the block; not allowed")
         end
     end
 
@@ -250,7 +349,6 @@ macro diffsym(block, args...)
         push!(deriv_assign_exprs, :($outname = $ex_d_orig))
     end
 
-    # --- final expansion: original user code + concrete derivative expressions
     return esc(quote
         begin
             $block
