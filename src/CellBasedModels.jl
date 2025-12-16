@@ -17,6 +17,7 @@ module CellBasedModels
     include("./auxiliar/diffauto.jl")
     export @consistency_diffauto
     include("./auxiliar/debugging.jl")
+    include("./auxiliar/algebra.jl")
     # include("./auxiliar/indexing.jl")
     # include("./auxiliar/meta.jl")
     # include("./auxiliar/recursiveCachedArrays.jl")
