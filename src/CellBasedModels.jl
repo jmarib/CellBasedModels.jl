@@ -11,6 +11,8 @@ module CellBasedModels
     # include("./auxiliar/units.jl")ç
     export Parameter
     include("./auxiliar/parameter.jl")
+    export @diffsym
+    include("./auxiliar/diffsym.jl")
     # include("./auxiliar/indexing.jl")
     # include("./auxiliar/meta.jl")
     # include("./auxiliar/recursiveCachedArrays.jl")
