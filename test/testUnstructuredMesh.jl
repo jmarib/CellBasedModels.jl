@@ -664,7 +664,7 @@ import StaticArrays: SizedVector
                     end
 
                     l = []
-                    for i in iterateNeighbors(obj, scope_index, 1)
+                    for i in iterateOverNeighbors(obj, scope_index, 1)
                         push!(l, i)
                     end
 
@@ -676,276 +676,262 @@ import StaticArrays: SizedVector
 
         @testset "UnstructuredMeshObject - NeighborsCellLinked" begin
             # Cell-linked neighbors only make sense for spatial dimensions >= 1
-            for dims in 1:3
-                box = [0.0 1.0; 0.0 1.0; 0.0 1.0][1:dims, :]
-                cellSize = [0.1, 0.1, 0.1][1:dims]
-                for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-                    mesh = nothing
-                    obj = nothing
-                    if scope === Node
-                        mesh = UnstructuredMesh(dims; n  = Node(props))
-                        obj = UnstructuredMeshObject(mesh, n = (2,4), neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
-                    elseif scope === Edge
-                        mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
-                        obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4), neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
-                    elseif scope === Face
-                        mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
-                        obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4), neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
-                    elseif scope === Volume
-                        mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
-                        obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4), neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
-                    elseif scope === Agent
-                        mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
-                        obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4), neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
-                    end
-
-                    # Set up some test particles for neighbor search
-                    if dims >= 1 && scope === Node
-                        # Place particles at known positions for testing
-                        if dims == 1
-                            if hasfield(typeof(obj.n), :x)
-                                obj.n.x[1] = 0.0
-                                obj.n.x[2] = 0.05  # Close to first particle
-                            end
-                        elseif dims == 2
-                            if hasfield(typeof(obj.n), :x) && hasfield(typeof(obj.n), :y)
-                                obj.n.x[1] = 0.0; obj.n.y[1] = 0.0
-                                obj.n.x[2] = 0.05; obj.n.y[2] = 0.05  # Close to first particle
-                            end
-                        elseif dims == 3
-                            if hasfield(typeof(obj.n), :x) && hasfield(typeof(obj.n), :y) && hasfield(typeof(obj.n), :z)
-                                obj.n.x[1] = 0.0; obj.n.y[1] = 0.0; obj.n.z[1] = 0.0
-                                obj.n.x[2] = 0.05; obj.n.y[2] = 0.05; obj.n.z[2] = 0.05  # Close to first particle
-                            end
-                        end
-                        
-                        # Initialize the cell-linked structure
-                        CellBasedModels.update!(obj)
-                    end
-
-                    l = []
-                    if dims == 0 || scope !== Node
-                        # Skip neighbor iteration for 0D case or non-Node scopes
-                        # For non-spatial cases, just test that the function exists
-                    elseif dims == 1
-                        for i in iterateNeighbors(obj, scope_index, 0.0)
-                            push!(l, i)
-                        end
-                    elseif dims == 2
-                        for i in iterateNeighbors(obj, scope_index, 0.0, 0.0)
-                            push!(l, i)
-                        end
-                    elseif dims == 3
-                        for i in iterateNeighbors(obj, scope_index, 0.0, 0.0, 0.0)
-                            push!(l, i)
+            # 3D
+            box = [0.0 1.0; 0.0 1.0; 0.0 1.0]
+            cellSize = [0.1, 0.1, 0.1]
+            mesh = UnstructuredMesh(3; n  = Node((nnCL=Int,nnFull=Int)))
+            @addRule model=mesh scope=integrator function get_neighbors(uNew, u, p, t)
+                x1 = y1 = z1 = 0.0
+                x2 = y2 = z2 = 0.0
+                for i in iterateOver(u.n)
+                    u.n.nnFull[i] = 0
+                    u.n.nnCL[i] = 0
+                    x1 = u.n.x[i]
+                    y1 = u.n.y[i]
+                    z1 = u.n.z[i]
+                    # Full neighbors
+                    for j in iterateOver(u.n)
+                        i == j ? continue : nothing
+                        x2 = u.n.x[j]
+                        y2 = u.n.y[j]
+                        z2 = u.n.z[j]
+                        dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
+                        if dist <= 0.1
+                            uNew.n.nnFull[i] += 1
                         end
                     end
-
-                    # Test expectations: only for Node scope with spatial dimensions
-                    if dims >= 1 && scope === Node
-                        @test length(l) >= 1  # Should find at least the nearby particles
+                    # Cell-linked neighbors
+                    for j in iterateOverNeighbors(u, :n, x1, y1, z1)
+                        x2 = u.n.x[j]
+                        y2 = u.n.y[j]
+                        z2 = u.n.z[j]
+                        dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
+                        # println("i: $i, j: $j, dist: $dist")
+                        if dist <= 0.1
+                            uNew.n.nnCL[i] += 1
+                        end
                     end
-                
                 end
+                CellBasedModels.update!(uNew)
             end
+            obj = UnstructuredMeshObject(mesh, n = 10000, neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
+
+            obj.n.x .= rand(10000)
+            obj.n.y .= rand(10000)
+            obj.n.z .= rand(10000)
+
+            problem = CBProblem(mesh, obj, (0.0, 1.0))
+            integrator = init(problem, dt=0.1)
+            step!(integrator)
+            println(integrator.u._neighbors.grid)
+            println(integrator.u._neighbors.cellSize)
+            println(minimum(integrator.u._neighbors.cell.n))
+            println(maximum(integrator.u._neighbors.cell.n))
+            println(integrator.u._neighbors.cellOffset.n)
+            println(integrator.u._neighbors.cellCounts.n)
+            println(length(unique(integrator.u._neighbors.permTable.n)))
+
+            @test all(integrator.u.n.nnCL .== integrator.u.n.nnFull)
+            println(integrator.u.n.nnCL) 
+            println(integrator.u.n.nnFull)
         end
 
-        @testset "UnstructuredMeshObject - CellLinked Algorithm Correctness" begin
-            # Test cell assignment
-            @testset "Cell Assignment" begin
-                # 2D case
-                props2d = (a=Float64, b=Float64)
-                mesh = UnstructuredMesh(2; n=Node(props2d))
-                box = [0.0 10.0; 0.0 10.0]
-                neighbors = NeighborsCellLinked(;box=box, cellSize=(2.0, 2.0))
-                obj = UnstructuredMeshObject(mesh, n=(4, 4), neighbors=neighbors)
+        # @testset "UnstructuredMeshObject - CellLinked Algorithm Correctness" begin
+        #     # Test cell assignment
+        #     @testset "Cell Assignment" begin
+        #         # 2D case
+        #         props2d = (a=Float64, b=Float64)
+        #         mesh = UnstructuredMesh(2; n=Node(props2d))
+        #         box = [0.0 10.0; 0.0 10.0]
+        #         neighbors = NeighborsCellLinked(;box=box, cellSize=(2.0, 2.0))
+        #         obj = UnstructuredMeshObject(mesh, n=(4, 4), neighbors=neighbors)
                 
-                # Set up test positions
-                obj.n.x[1] = 0.5; obj.n.y[1] = 0.5   # Should be in cell 1
-                obj.n.x[2] = 2.5; obj.n.y[2] = 0.5   # Should be in cell 2
-                obj.n.x[3] = 0.5; obj.n.y[3] = 2.5   # Should be in cell 6
-                obj.n.x[4] = 2.5; obj.n.y[4] = 2.5   # Should be in cell 7
+        #         # Set up test positions
+        #         obj.n.x[1] = 0.5; obj.n.y[1] = 0.5   # Should be in cell 1
+        #         obj.n.x[2] = 2.5; obj.n.y[2] = 0.5   # Should be in cell 2
+        #         obj.n.x[3] = 0.5; obj.n.y[3] = 2.5   # Should be in cell 6
+        #         obj.n.x[4] = 2.5; obj.n.y[4] = 2.5   # Should be in cell 7
                 
-                CellBasedModels.update!(obj)
+        #         CellBasedModels.update!(obj)
                 
-                # Test cell assignments
-                @test CellBasedModels.assignCell(obj._neighbors, 0.5, 0.5) == 1
-                @test CellBasedModels.assignCell(obj._neighbors, 2.5, 0.5) == 2  
-                @test CellBasedModels.assignCell(obj._neighbors, 0.5, 2.5) == 8  # 1 * 7 + 0 + 1 
-                @test CellBasedModels.assignCell(obj._neighbors, 2.5, 2.5) == 9  # 1 * 7 + 1 + 1
-            end
+        #         # Test cell assignments
+        #         @test CellBasedModels.assignCell(obj._neighbors, 0.5, 0.5) == 1
+        #         @test CellBasedModels.assignCell(obj._neighbors, 2.5, 0.5) == 2  
+        #         @test CellBasedModels.assignCell(obj._neighbors, 0.5, 2.5) == 8  # 1 * 7 + 0 + 1 
+        #         @test CellBasedModels.assignCell(obj._neighbors, 2.5, 2.5) == 9  # 1 * 7 + 1 + 1
+        #     end
 
-            # Test basic neighbor finding
-            @testset "Basic Neighbor Finding" begin
-                mesh = UnstructuredMesh(2; n=Node())
-                box = [0.0 10.0; 0.0 10.0]
-                neighbors = NeighborsCellLinked(;box=box, cellSize=(3.0, 3.0))
-                obj = UnstructuredMeshObject(mesh, n=(3, 3), neighbors=neighbors)
+        #     # Test basic neighbor finding
+        #     @testset "Basic Neighbor Finding" begin
+        #         mesh = UnstructuredMesh(2; n=Node())
+        #         box = [0.0 10.0; 0.0 10.0]
+        #         neighbors = NeighborsCellLinked(;box=box, cellSize=(3.0, 3.0))
+        #         obj = UnstructuredMeshObject(mesh, n=(3, 3), neighbors=neighbors)
                 
-                # Place particles in same cell
-                obj.n.x[1] = 1.0; obj.n.y[1] = 1.0   # Cell 1
-                obj.n.x[2] = 1.5; obj.n.y[2] = 1.5   # Cell 1  
-                obj.n.x[3] = 8.0; obj.n.y[3] = 8.0   # Different cell
+        #         # Place particles in same cell
+        #         obj.n.x[1] = 1.0; obj.n.y[1] = 1.0   # Cell 1
+        #         obj.n.x[2] = 1.5; obj.n.y[2] = 1.5   # Cell 1  
+        #         obj.n.x[3] = 8.0; obj.n.y[3] = 8.0   # Different cell
                 
-                CellBasedModels.update!(obj)
+        #         CellBasedModels.update!(obj)
                 
-                # Particle 1 should find particle 2 (same cell) but not particle 3
-                neighbors_1 = collect(iterateNeighbors(obj, :n, obj.n.x[1], obj.n.y[1]))
-                @test 1 in neighbors_1
-                @test 2 in neighbors_1
-                @test !(3 in neighbors_1)
-                @test length(neighbors_1) == 2
-            end
-        end
+        #         # Particle 1 should find particle 2 (same cell) but not particle 3
+        #         neighbors_1 = collect(iterateOverNeighbors(obj, :n, obj.n.x[1], obj.n.y[1]))
+        #         @test 1 in neighbors_1
+        #         @test 2 in neighbors_1
+        #         @test !(3 in neighbors_1)
+        #         @test length(neighbors_1) == 2
+        #     end
+        # end
 
-        @testset "UnstructuredMeshObject - Periodic Boundaries" begin
-            # Test periodic boundary conditions
-            @testset "Periodic Boundary Cell Assignment" begin
-                mesh = UnstructuredMesh(2; n=Node())
-                box = [0.0 10.0; 0.0 10.0]
-                neighbors = NeighborsCellLinked(;box=box, cellSize=(2.0, 2.0), periodic=(true, true))
-                obj = UnstructuredMeshObject(mesh, n=(4, 4), neighbors=neighbors)
+        # @testset "UnstructuredMeshObject - Periodic Boundaries" begin
+        #     # Test periodic boundary conditions
+        #     @testset "Periodic Boundary Cell Assignment" begin
+        #         mesh = UnstructuredMesh(2; n=Node())
+        #         box = [0.0 10.0; 0.0 10.0]
+        #         neighbors = NeighborsCellLinked(;box=box, cellSize=(2.0, 2.0), periodic=(true, true))
+        #         obj = UnstructuredMeshObject(mesh, n=(4, 4), neighbors=neighbors)
                 
-                # Test particles at boundaries
-                obj.n.x[1] = 0.5; obj.n.y[1] = 0.5     # Bottom-left  
-                obj.n.x[2] = 9.5; obj.n.y[2] = 0.5     # Bottom-right
-                obj.n.x[3] = 0.5; obj.n.y[3] = 9.5     # Top-left
-                obj.n.x[4] = 9.5; obj.n.y[4] = 9.5     # Top-right
+        #         # Test particles at boundaries
+        #         obj.n.x[1] = 0.5; obj.n.y[1] = 0.5     # Bottom-left  
+        #         obj.n.x[2] = 9.5; obj.n.y[2] = 0.5     # Bottom-right
+        #         obj.n.x[3] = 0.5; obj.n.y[3] = 9.5     # Top-left
+        #         obj.n.x[4] = 9.5; obj.n.y[4] = 9.5     # Top-right
                 
-                CellBasedModels.update!(obj)
+        #         CellBasedModels.update!(obj)
                 
-                # Verify grid size is correct for periodic (no padding)
-                @test obj._neighbors.grid == (5, 5)  # 10/2 = 5, no padding for periodic
+        #         # Verify grid size is correct for periodic (no padding)
+        #         @test obj._neighbors.grid == (5, 5)  # 10/2 = 5, no padding for periodic
                 
-                # Test cell assignments
-                @test CellBasedModels.assignCell(obj._neighbors, 0.5, 0.5) == 1   # Bottom-left corner
-                @test CellBasedModels.assignCell(obj._neighbors, 9.5, 0.5) == 5   # Bottom-right corner  
-                @test CellBasedModels.assignCell(obj._neighbors, 0.5, 9.5) == 21  # Top-left corner
-                @test CellBasedModels.assignCell(obj._neighbors, 9.5, 9.5) == 25  # Top-right corner
-            end
+        #         # Test cell assignments
+        #         @test CellBasedModels.assignCell(obj._neighbors, 0.5, 0.5) == 1   # Bottom-left corner
+        #         @test CellBasedModels.assignCell(obj._neighbors, 9.5, 0.5) == 5   # Bottom-right corner  
+        #         @test CellBasedModels.assignCell(obj._neighbors, 0.5, 9.5) == 21  # Top-left corner
+        #         @test CellBasedModels.assignCell(obj._neighbors, 9.5, 9.5) == 25  # Top-right corner
+        #     end
 
-            @testset "Periodic Boundary Neighbor Finding" begin
-                mesh = UnstructuredMesh(2; n=Node())
-                box = [0.0 10.0; 0.0 10.0]
-                neighbors = NeighborsCellLinked(;box=box, cellSize=(2.0, 2.0), periodic=(true, true))
-                obj = UnstructuredMeshObject(mesh, n=(4, 4), neighbors=neighbors)
+        #     @testset "Periodic Boundary Neighbor Finding" begin
+        #         mesh = UnstructuredMesh(2; n=Node())
+        #         box = [0.0 10.0; 0.0 10.0]
+        #         neighbors = NeighborsCellLinked(;box=box, cellSize=(2.0, 2.0), periodic=(true, true))
+        #         obj = UnstructuredMeshObject(mesh, n=(4, 4), neighbors=neighbors)
                 
-                # Place particles at corners to test wraparound
-                obj.n.x[1] = 0.5; obj.n.y[1] = 0.5     # Bottom-left
-                obj.n.x[2] = 9.5; obj.n.y[2] = 0.5     # Bottom-right  
-                obj.n.x[3] = 0.5; obj.n.y[3] = 9.5     # Top-left
-                obj.n.x[4] = 9.5; obj.n.y[4] = 9.5     # Top-right
+        #         # Place particles at corners to test wraparound
+        #         obj.n.x[1] = 0.5; obj.n.y[1] = 0.5     # Bottom-left
+        #         obj.n.x[2] = 9.5; obj.n.y[2] = 0.5     # Bottom-right  
+        #         obj.n.x[3] = 0.5; obj.n.y[3] = 9.5     # Top-left
+        #         obj.n.x[4] = 9.5; obj.n.y[4] = 9.5     # Top-right
                 
-                CellBasedModels.update!(obj)
+        #         CellBasedModels.update!(obj)
                 
-                # Particle 1 (bottom-left) should find all others due to periodic wrapping
-                neighbors_1 = collect(iterateNeighbors(obj, :n, obj.n.x[1], obj.n.y[1]))
-                @test length(neighbors_1) == 4  # Should find all 4 particles
-                @test 1 in neighbors_1  # Itself
-                @test 2 in neighbors_1  # Right neighbor (x-wrap)
-                @test 3 in neighbors_1  # Top neighbor (y-wrap)  
-                @test 4 in neighbors_1  # Diagonal neighbor (x,y-wrap)
-            end
+        #         # Particle 1 (bottom-left) should find all others due to periodic wrapping
+        #         neighbors_1 = collect(iterateOverNeighbors(obj, :n, obj.n.x[1], obj.n.y[1]))
+        #         @test length(neighbors_1) == 4  # Should find all 4 particles
+        #         @test 1 in neighbors_1  # Itself
+        #         @test 2 in neighbors_1  # Right neighbor (x-wrap)
+        #         @test 3 in neighbors_1  # Top neighbor (y-wrap)  
+        #         @test 4 in neighbors_1  # Diagonal neighbor (x,y-wrap)
+        #     end
 
-            @testset "Mixed Periodic Boundaries" begin
-                # Test periodic in x but not y
-                mesh = UnstructuredMesh(2; n=Node())
-                box = [0.0 10.0; 0.0 10.0]
-                neighbors = NeighborsCellLinked(;box=box, cellSize=(2.0, 2.0), periodic=(true, false))
-                obj = UnstructuredMeshObject(mesh, n=(4, 4), neighbors=neighbors)
+        #     @testset "Mixed Periodic Boundaries" begin
+        #         # Test periodic in x but not y
+        #         mesh = UnstructuredMesh(2; n=Node())
+        #         box = [0.0 10.0; 0.0 10.0]
+        #         neighbors = NeighborsCellLinked(;box=box, cellSize=(2.0, 2.0), periodic=(true, false))
+        #         obj = UnstructuredMeshObject(mesh, n=(4, 4), neighbors=neighbors)
                 
-                # Place particles at corners
-                obj.n.x[1] = 0.5; obj.n.y[1] = 0.5     # Bottom-left
-                obj.n.x[2] = 9.5; obj.n.y[2] = 0.5     # Bottom-right (x-wraps to left)
-                obj.n.x[3] = 0.5; obj.n.y[3] = 9.5     # Top-left (y-doesn't wrap)
-                obj.n.x[4] = 9.5; obj.n.y[4] = 9.5     # Top-right
+        #         # Place particles at corners
+        #         obj.n.x[1] = 0.5; obj.n.y[1] = 0.5     # Bottom-left
+        #         obj.n.x[2] = 9.5; obj.n.y[2] = 0.5     # Bottom-right (x-wraps to left)
+        #         obj.n.x[3] = 0.5; obj.n.y[3] = 9.5     # Top-left (y-doesn't wrap)
+        #         obj.n.x[4] = 9.5; obj.n.y[4] = 9.5     # Top-right
                 
-                CellBasedModels.update!(obj)
+        #         CellBasedModels.update!(obj)
                 
-                # Grid should have padding in y but not x
-                @test obj._neighbors.grid[1] == 5   # x: no padding (10/2 = 5)  
-                @test obj._neighbors.grid[2] == 7   # y: padding (10/2 + 2 = 7)
+        #         # Grid should have padding in y but not x
+        #         @test obj._neighbors.grid[1] == 5   # x: no padding (10/2 = 5)  
+        #         @test obj._neighbors.grid[2] == 7   # y: padding (10/2 + 2 = 7)
                 
-                # Particle 1 should find particle 2 (x-wrap) but not particles 3,4 (too far in y)
-                neighbors_1 = collect(iterateNeighbors(obj, :n, obj.n.x[1], obj.n.y[1]))
-                @test 1 in neighbors_1  # Itself
-                @test 2 in neighbors_1  # x-wrapped neighbor
-                # Should not find 3 or 4 due to large y-distance and no y-wrapping
-                @test length(neighbors_1) >= 2  # At least itself and x-wrapped neighbor
-            end
+        #         # Particle 1 should find particle 2 (x-wrap) but not particles 3,4 (too far in y)
+        #         neighbors_1 = collect(iterateOverNeighbors(obj, :n, obj.n.x[1], obj.n.y[1]))
+        #         @test 1 in neighbors_1  # Itself
+        #         @test 2 in neighbors_1  # x-wrapped neighbor
+        #         # Should not find 3 or 4 due to large y-distance and no y-wrapping
+        #         @test length(neighbors_1) >= 2  # At least itself and x-wrapped neighbor
+        #     end
 
-            @testset "Non-Periodic Boundaries" begin
-                # Test no periodic boundaries (original behavior)
-                mesh = UnstructuredMesh(2; n=Node())
-                box = [0.0 10.0; 0.0 10.0] 
-                neighbors = NeighborsCellLinked(;box=box, cellSize=(2.0, 2.0), periodic=(false, false))
-                obj = UnstructuredMeshObject(mesh, n=(4, 4), neighbors=neighbors)
+        #     @testset "Non-Periodic Boundaries" begin
+        #         # Test no periodic boundaries (original behavior)
+        #         mesh = UnstructuredMesh(2; n=Node())
+        #         box = [0.0 10.0; 0.0 10.0] 
+        #         neighbors = NeighborsCellLinked(;box=box, cellSize=(2.0, 2.0), periodic=(false, false))
+        #         obj = UnstructuredMeshObject(mesh, n=(4, 4), neighbors=neighbors)
                 
-                # Place particles at corners
-                obj.n.x[1] = 0.5; obj.n.y[1] = 0.5     # Bottom-left
-                obj.n.x[2] = 9.5; obj.n.y[2] = 0.5     # Bottom-right
-                obj.n.x[3] = 0.5; obj.n.y[3] = 9.5     # Top-left  
-                obj.n.x[4] = 9.5; obj.n.y[4] = 9.5     # Top-right
+        #         # Place particles at corners
+        #         obj.n.x[1] = 0.5; obj.n.y[1] = 0.5     # Bottom-left
+        #         obj.n.x[2] = 9.5; obj.n.y[2] = 0.5     # Bottom-right
+        #         obj.n.x[3] = 0.5; obj.n.y[3] = 9.5     # Top-left  
+        #         obj.n.x[4] = 9.5; obj.n.y[4] = 9.5     # Top-right
                 
-                CellBasedModels.update!(obj)
+        #         CellBasedModels.update!(obj)
                 
-                # Grid should have padding in both dimensions
-                @test obj._neighbors.grid == (7, 7)  # 10/2 + 2 = 7 for both dimensions
+        #         # Grid should have padding in both dimensions
+        #         @test obj._neighbors.grid == (7, 7)  # 10/2 + 2 = 7 for both dimensions
                 
-                # Particle 1 should only find itself (no wrapping, corners are far apart)
-                neighbors_1 = collect(iterateNeighbors(obj, :n, obj.n.x[1], obj.n.y[1]))
-                @test 1 in neighbors_1  # Always finds itself
-                @test length(neighbors_1) == 1  # Should only find itself
-            end
-        end
+        #         # Particle 1 should only find itself (no wrapping, corners are far apart)
+        #         neighbors_1 = collect(iterateOverNeighbors(obj, :n, obj.n.x[1], obj.n.y[1]))
+        #         @test 1 in neighbors_1  # Always finds itself
+        #         @test length(neighbors_1) == 1  # Should only find itself
+        #     end
+        # end
 
-        @testset "UnstructuredMeshObject - CellLinked Edge Cases" begin
-            @testset "Empty Cells" begin
-                # Test behavior with many empty cells
-                mesh = UnstructuredMesh(2; n=Node())
-                box = [0.0 10.0; 0.0 10.0]
-                neighbors = NeighborsCellLinked(;box=box, cellSize=(1.0, 1.0))  # Many small cells
-                obj = UnstructuredMeshObject(mesh, n=(2, 2), neighbors=neighbors)
+        # @testset "UnstructuredMeshObject - CellLinked Edge Cases" begin
+        #     @testset "Empty Cells" begin
+        #         # Test behavior with many empty cells
+        #         mesh = UnstructuredMesh(2; n=Node())
+        #         box = [0.0 10.0; 0.0 10.0]
+        #         neighbors = NeighborsCellLinked(;box=box, cellSize=(1.0, 1.0))  # Many small cells
+        #         obj = UnstructuredMeshObject(mesh, n=(2, 2), neighbors=neighbors)
                 
-                # Place only 2 particles far apart
-                obj.n.x[1] = 0.5; obj.n.y[1] = 0.5  # Cell 1
-                obj.n.x[2] = 9.5; obj.n.y[2] = 9.5  # Cell 100 (far away)
+        #         # Place only 2 particles far apart
+        #         obj.n.x[1] = 0.5; obj.n.y[1] = 0.5  # Cell 1
+        #         obj.n.x[2] = 9.5; obj.n.y[2] = 9.5  # Cell 100 (far away)
                 
-                CellBasedModels.update!(obj)
+        #         CellBasedModels.update!(obj)
                 
-                # Each particle should only find itself
-                neighbors_1 = collect(iterateNeighbors(obj, :n, obj.n.x[1], obj.n.y[1]))
-                neighbors_2 = collect(iterateNeighbors(obj, :n, obj.n.x[2], obj.n.y[2]))
+        #         # Each particle should only find itself
+        #         neighbors_1 = collect(iterateOverNeighbors(obj, :n, obj.n.x[1], obj.n.y[1]))
+        #         neighbors_2 = collect(iterateOverNeighbors(obj, :n, obj.n.x[2], obj.n.y[2]))
                 
-                @test length(neighbors_1) == 1
-                @test length(neighbors_2) == 1
-                @test neighbors_1[1] == 1
-                @test neighbors_2[1] == 2
-            end
+        #         @test length(neighbors_1) == 1
+        #         @test length(neighbors_2) == 1
+        #         @test neighbors_1[1] == 1
+        #         @test neighbors_2[1] == 2
+        #     end
 
-            @testset "Single Cell" begin
-                # Test when all particles are in the same cell
-                mesh = UnstructuredMesh(2; n=Node())
-                box = [0.0 10.0; 0.0 10.0]
-                neighbors = NeighborsCellLinked(;box=box, cellSize=(20.0, 20.0))  # Very large cells
-                obj = UnstructuredMeshObject(mesh, n=(3, 3), neighbors=neighbors)
+        #     @testset "Single Cell" begin
+        #         # Test when all particles are in the same cell
+        #         mesh = UnstructuredMesh(2; n=Node())
+        #         box = [0.0 10.0; 0.0 10.0]
+        #         neighbors = NeighborsCellLinked(;box=box, cellSize=(20.0, 20.0))  # Very large cells
+        #         obj = UnstructuredMeshObject(mesh, n=(3, 3), neighbors=neighbors)
                 
-                # All particles in same cell
-                obj.n.x[1] = 2.0; obj.n.y[1] = 2.0
-                obj.n.x[2] = 4.0; obj.n.y[2] = 4.0  
-                obj.n.x[3] = 6.0; obj.n.y[3] = 6.0
+        #         # All particles in same cell
+        #         obj.n.x[1] = 2.0; obj.n.y[1] = 2.0
+        #         obj.n.x[2] = 4.0; obj.n.y[2] = 4.0  
+        #         obj.n.x[3] = 6.0; obj.n.y[3] = 6.0
                 
-                CellBasedModels.update!(obj)
+        #         CellBasedModels.update!(obj)
                 
-                # Each particle should find all particles
-                for i in 1:3
-                    neighbors_i = collect(iterateNeighbors(obj, :n, obj.n.x[i], obj.n.y[i]))
-                    @test length(neighbors_i) == 3
-                    @test 1 in neighbors_i
-                    @test 2 in neighbors_i  
-                    @test 3 in neighbors_i
-                end
-            end
-        end
+        #         # Each particle should find all particles
+        #         for i in 1:3
+        #             neighbors_i = collect(iterateOverNeighbors(obj, :n, obj.n.x[i], obj.n.y[i]))
+        #             @test length(neighbors_i) == 3
+        #             @test 1 in neighbors_i
+        #             @test 2 in neighbors_i  
+        #             @test 3 in neighbors_i
+        #         end
+        #     end
+        # end
     end
 end

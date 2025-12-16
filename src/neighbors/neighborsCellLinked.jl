@@ -1,29 +1,26 @@
-struct NeighborsCellLinked{D, P, UM, B, CS, G, C, CO, PT, CC, PE} <: AbstractNeighbors 
+struct NeighborsCellLinked{D, P, UM, B, CS, G, C, CO} <: AbstractNeighbors 
 
     u::UM
 
     box::B
     cellSize::CS
     grid::G
-    periodic::PE
 
     cell::C
     cellOffset::CO
+    cellCounts::CO
 
-    permTable::PT
+    permTable::C
     
-    cellCounters::CC
-
 end
 Adapt.@adapt_structure NeighborsCellLinked
 
 function NeighborsCellLinked(;box, cellSize, periodic=nothing)
-    NeighborsCellLinked{Nothing, Nothing, Nothing, typeof(box), typeof(cellSize), Nothing, Nothing, Nothing, Nothing, Nothing, typeof(periodic)}(
+    NeighborsCellLinked{Nothing, Nothing, Nothing, typeof(box), typeof(cellSize), Nothing, Nothing, Nothing}(
         nothing, 
         box, 
         cellSize,
         nothing,
-        periodic,
         nothing,
         nothing,
         nothing,
@@ -33,13 +30,16 @@ end
 
 function NeighborsCellLinked(
     mesh,
-    permTable,
+
     box,
     cellSize,
     grid,
-    periodic,
+
     cell,
-    cellOffset
+    cellOffset,
+    cellCounts,
+
+    permTable,
 )
 
     NeighborsCellLinked{
@@ -51,9 +51,6 @@ function NeighborsCellLinked(
         typeof(grid),
         typeof(cell),
         typeof(cellOffset),
-        typeof(permTable),
-        Nothing,
-        typeof(periodic)
     }(
         mesh,
         box,
@@ -62,8 +59,8 @@ function NeighborsCellLinked(
         periodic,
         cell,
         cellOffset,
+        cellCounts,
         permTable,
-        nothing
     )
 
 end
@@ -105,65 +102,35 @@ function initNeighbors(
         error("Cell size must be a Number, Tuple, or Vector. Found type $(typeof(cellSize))")
     end
 
-    # Handle periodic boundary parameter
-    periodic = neighbors.periodic
-    if periodic === nothing
-        # Default: no periodic boundaries
-        periodic = ntuple(i -> false, D)
-    elseif periodic isa Bool
-        # Single bool: apply to all dimensions
-        periodic = ntuple(i -> periodic, D)
-    elseif periodic isa Tuple
-        # Tuple: check length
-        if length(periodic) != D
-            error("Periodic tuple length mismatch. Expected length $(D), found length $(length(periodic))")
-        end
-        periodic = ntuple(i -> periodic[i], D)
-    elseif periodic isa AbstractVector
-        # Vector: check length and convert to tuple
-        if length(periodic) != D
-            error("Periodic vector length mismatch. Expected length $(D), found length $(length(periodic))")
-        end
-        periodic = ntuple(i -> periodic[i], D)
-    else
-        error("Periodic parameter must be Nothing, Bool, Tuple, or Vector. Found type $(typeof(periodic))")
-    end
-
     # Calculate grid size: no padding for periodic dimensions, padding for non-periodic
     grid = round.(Int, (box[:,2] - box[:,1]) ./ cellSize)
-    for i in 1:D
-        if !periodic[i]
-            grid[i] += 2  # Add padding for non-periodic boundaries
-        end
-    end
     gridTuple = ntuple(i -> grid[i], D)  # Convert to NTuple for assignCell! compatibility
     gridSize = prod(grid)  # Total number of cells
 
     permTable = Dict()
     cell = Dict()
     cellOffset = Dict()
-    cellCounters = Dict()  # Per-thread workspace arrays
+    cellCounts = Dict()  # Per-thread workspace arrays
     
     for (name, prop) in pairs(meshParameters)
         permTable[name] = zeros(Int, lengthCache(prop))
         cell[name] = zeros(Int, lengthCache(prop))
         cellOffset[name] = zeros(Int, gridSize+1)
         # Create per-thread workspace for cell counters (gridSize per thread)
-        cellCounters[name] = [zeros(Int, gridSize) for _ in 1:Threads.nthreads()]
+        cellCounts[name] = zeros(Int, gridSize+1)
     end
 
     permTableNamed = NamedTuple{tuple(keys(permTable)...)}(values(permTable))
     cellNamed = NamedTuple{tuple(keys(cell)...)}(values(cell))
     cellOffsetNamed = NamedTuple{tuple(keys(cellOffset)...)}(values(cellOffset))
-    cellCountersNamed = NamedTuple{tuple(keys(cellCounters)...)}(values(cellCounters))
+    cellCountsNamed = NamedTuple{tuple(keys(cellCounts)...)}(values(cellCounts))
 
     NeighborsCellLinked{
         D, P, 
         typeof(meshParameters), 
         typeof(box), typeof(cellSize), typeof(gridTuple), 
         typeof(cellNamed), typeof(cellOffsetNamed),
-        typeof(permTableNamed), typeof(cellCountersNamed), typeof(periodic)
-    }(meshParameters, box, cellSize, gridTuple, periodic, cellNamed, cellOffsetNamed, permTableNamed, cellCountersNamed)
+    }(meshParameters, box, cellSize, gridTuple, cellNamed, cellOffsetNamed, cellCountsNamed, permTableNamed)
 
 end
 
@@ -177,12 +144,11 @@ function update!(mesh::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P, D
         assignCell!(mesh._neighbors.cell[name], N, prop, mesh._neighbors)
         
         # Step 2: Count particles in each cell (parallel, no allocations)
-        countInCell!(mesh._neighbors.cellOffset[name], N, mesh._neighbors.cell[name], 
-                    mesh._neighbors.cellCounters[name])
+        countInCell!(mesh._neighbors.cellOffset[name], N, mesh._neighbors.cell[name])
         
-        # Step 3: Fill the permutation table (parallel, reuses cellCounters workspace)
+        # Step 3: Fill the permutation table (parallel, reuses cellCounts workspace)
         fillPermTable!(mesh._neighbors.permTable[name], mesh._neighbors.cellOffset[name], 
-                      mesh._neighbors.cell[name], N, mesh._neighbors.cellCounters[name])
+                      mesh._neighbors.cell[name], N, mesh._neighbors.cellCounts[name])
     end
 
     #Renaming TO DO
@@ -194,50 +160,18 @@ end
 
 function assignCell(neighbors, x, y)
     # Calculate raw cell indices
-    rawCellX = floor(Int, (x - neighbors.box[1,1]) / neighbors.cellSize[1])
-    rawCellY = floor(Int, (y - neighbors.box[2,1]) / neighbors.cellSize[2])
-    
-    # Apply boundary conditions
-    if neighbors.periodic[1]
-        cellX = rawCellX % neighbors.grid[1]
-    else
-        cellX = clamp(rawCellX, 0, neighbors.grid[1] - 1)
-    end
-    
-    if neighbors.periodic[2]
-        cellY = rawCellY % neighbors.grid[2]
-    else
-        cellY = clamp(rawCellY, 0, neighbors.grid[2] - 1)
-    end
-    
+    cellX = clamp(floor(Int, (x - neighbors.box[1,1]) / neighbors.cellSize[1]), 0, neighbors.grid[1] - 1)
+    cellY = clamp(floor(Int, (y - neighbors.box[2,1]) / neighbors.cellSize[2]), 0, neighbors.grid[2] - 1)
+        
     return cellY * neighbors.grid[1] + cellX + 1
 end
 
 function assignCell(neighbors, x, y, z)
     # Calculate raw cell indices
-    rawCellX = floor(Int, (x - neighbors.box[1,1]) / neighbors.cellSize[1])
-    rawCellY = floor(Int, (y - neighbors.box[2,1]) / neighbors.cellSize[2])
-    rawCellZ = floor(Int, (z - neighbors.box[3,1]) / neighbors.cellSize[3])
-    
-    # Apply boundary conditions
-    if neighbors.periodic[1]
-        cellX = rawCellX % neighbors.grid[1]
-    else
-        cellX = clamp(rawCellX, 0, neighbors.grid[1] - 1)
-    end
-    
-    if neighbors.periodic[2]
-        cellY = rawCellY % neighbors.grid[2]
-    else
-        cellY = clamp(rawCellY, 0, neighbors.grid[2] - 1)
-    end
-    
-    if neighbors.periodic[3]
-        cellZ = rawCellZ % neighbors.grid[3]
-    else
-        cellZ = clamp(rawCellZ, 0, neighbors.grid[3] - 1)
-    end
-    
+    cellX = clamp(floor(Int, (x - neighbors.box[1,1]) / neighbors.cellSize[1]), 0, neighbors.grid[1] - 1)
+    cellY = clamp(floor(Int, (y - neighbors.box[2,1]) / neighbors.cellSize[2]), 0, neighbors.grid[2] - 1)
+    cellZ = clamp(floor(Int, (z - neighbors.box[3,1]) / neighbors.cellSize[3]), 0, neighbors.grid[3] - 1)
+        
     return cellZ * neighbors.grid[1] * neighbors.grid[2] + cellY * neighbors.grid[1] + cellX + 1
 end
 
@@ -253,22 +187,9 @@ function assignCell!(cellArray, N, prop, neighbors::NeighborsCellLinked{2})
     cell = @views cellArray[1:N]
     
     # Calculate cell indices
-    rawCellX = floor.(Int, (x .- neighbors.box[1,1]) ./ neighbors.cellSize[1])
-    rawCellY = floor.(Int, (y .- neighbors.box[2,1]) ./ neighbors.cellSize[2])
-    
-    # Apply boundary conditions
-    if neighbors.periodic[1]
-        cellX = rawCellX .% neighbors.grid[1]
-    else
-        cellX = clamp.(rawCellX, 0, neighbors.grid[1] - 1)
-    end
-    
-    if neighbors.periodic[2]
-        cellY = rawCellY .% neighbors.grid[2]
-    else
-        cellY = clamp.(rawCellY, 0, neighbors.grid[2] - 1)
-    end
-    
+    cellX = clamp.(floor.(Int, (x .- neighbors.box[1,1]) ./ neighbors.cellSize[1]), 0, neighbors.grid[1] - 1)
+    cellY = clamp.(floor.(Int, (y .- neighbors.box[2,1]) ./ neighbors.cellSize[2]), 0, neighbors.grid[2] - 1)
+        
     cell .= cellY .* neighbors.grid[1] .+ cellX .+ 1
 end
 
@@ -279,78 +200,30 @@ function assignCell!(cellArray, N, prop, neighbors::NeighborsCellLinked{3})
     cell = @views cellArray[1:N]
     
     # Calculate cell indices
-    rawCellX = floor.(Int, (x .- neighbors.box[1,1]) ./ neighbors.cellSize[1])
-    rawCellY = floor.(Int, (y .- neighbors.box[2,1]) ./ neighbors.cellSize[2])
-    rawCellZ = floor.(Int, (z .- neighbors.box[3,1]) ./ neighbors.cellSize[3])
-    
-    # Apply boundary conditions
-    if neighbors.periodic[1]
-        cellX = rawCellX .% neighbors.grid[1]
-    else
-        cellX = clamp.(rawCellX, 0, neighbors.grid[1] - 1)
-    end
-    
-    if neighbors.periodic[2]
-        cellY = rawCellY .% neighbors.grid[2]
-    else
-        cellY = clamp.(rawCellY, 0, neighbors.grid[2] - 1)
-    end
-    
-    if neighbors.periodic[3]
-        cellZ = rawCellZ .% neighbors.grid[3]
-    else
-        cellZ = clamp.(rawCellZ, 0, neighbors.grid[3] - 1)
-    end
-    
+    cellX = clamp.(floor.(Int, (x .- neighbors.box[1,1]) ./ neighbors.cellSize[1]), 0, neighbors.grid[1] - 1)
+    cellY = clamp.(floor.(Int, (y .- neighbors.box[2,1]) ./ neighbors.cellSize[2]), 0, neighbors.grid[2] - 1)
+    cellZ = clamp.(floor.(Int, (z .- neighbors.box[3,1]) ./ neighbors.cellSize[3]), 0, neighbors.grid[3] - 1)
+        
     cell .= cellZ .* neighbors.grid[1] .* neighbors.grid[2] .+ cellY .* neighbors.grid[1] .+ cellX .+ 1
 end
 
-function countInCell!(cellOffset, N, cell, cellCounters)
+function countInCell!(cellOffset, N, cell)
     """
     Parallel version of cell counting using per-thread workspace arrays.
-    No temporary allocations - uses pre-allocated cellCounters workspace.
+    No temporary allocations - uses pre-allocated cellCounts workspace.
     """
-    
-    nThreads = Threads.nthreads()
-    nCells = length(cellOffset) - 1
-    
-    # Clear all thread-local counters (no allocation)
-    Threads.@threads for tid in 1:nThreads
-        fill!(cellCounters[tid], 0)
-    end
-    
-    # Parallel counting phase - each thread counts its chunk
-    Threads.@threads for i in 1:N
-        tid = Threads.threadid()
+    cellOffset .= 0
+    @inbounds for i in 1:N
         cellIdx = cell[i]
-        @inbounds cellCounters[tid][cellIdx] += 1
+        cellOffset[cellIdx+1] += 1
     end
-    
-    # Reduction phase - sum all thread-local counts
-    fill!(cellOffset, 0)
-    for tid in 1:nThreads
-        for cellIdx in 1:nCells
-            @inbounds cellOffset[cellIdx] += cellCounters[tid][cellIdx]
-        end
+
+    for i in 2:length(cellOffset)
+        cellOffset[i] += cellOffset[i-1]
     end
-    
-    # Convert counts to cumulative offsets properly
-    # cellOffset[i] should be the starting position for cell i (0-based)
-    # For example: if cell 1 has 2 particles, cell 2 has 1 particle:
-    # cellOffset[1] = 0, cellOffset[2] = 2, cellOffset[3] = 3
-    
-    temp_offset = 0
-    for i in 1:nCells
-        count = cellOffset[i]
-        cellOffset[i] = temp_offset
-        temp_offset += count
-    end
-    cellOffset[nCells + 1] = temp_offset  # Total count
-    
-    return cellOffset
 end
 
-function fillPermTable!(permTable, cellOffset, cell, N, cellCounters)
+function fillPermTable!(permTable, cellOffset, cell, N, cellCounts)
     """
     Sequential version of permutation table filling to avoid race conditions.
     Creates a stable, deterministic ordering within each cell based on 
@@ -361,27 +234,17 @@ function fillPermTable!(permTable, cellOffset, cell, N, cellCounters)
     
     nCells = length(cellOffset) - 1
     
-    # cellOffset[i] now contains cumulative count (start position for cell i)
-    # Initialize write heads to cell start positions (which are already correct in cellOffset)
-    writeHeads = copy(cellOffset[1:nCells])  # Don't include the last element
-    
-    # Process particles in order to maintain stable sorting within cells
-    for i in 1:N
+    cellCounts .= 0    
+
+    @inbounds for i in 1:N
         cellIdx = cell[i]
-        
-        # Get next available position in this cell and increment the write head
-        sortedPos = writeHeads[cellIdx] + 1
-        writeHeads[cellIdx] = sortedPos
-        
-        # Store original particle index at the sorted position
-        if sortedPos <= length(permTable)
-            permTable[sortedPos] = i
-        else
-            error("sortedPos ($sortedPos) exceeds permTable length ($(length(permTable))). Cell $cellIdx, writeHead was $(writeHeads[cellIdx]-1)")
-        end
+
+        pos = cellOffset[cellIdx] + cellCounts[cellIdx] + 1
+        cellCounts[cellIdx] += 1
+
+        permTable[pos] = i
     end
     
-    return permTable
 end
 
 # Iterator types for non-allocating neighbor iteration
@@ -691,7 +554,7 @@ function iterate_next_3d(iter::NeighborIterator3D, start_dx::Int, start_dy::Int,
 end
 
 # Constructor functions for the iterators
-function iterateNeighbors(mesh::UnstructuredMeshObject{P, 1, S, DT, NN}, symbol::Symbol, x) where {P, S, DT, NN<:NeighborsCellLinked}
+function iterateOverNeighbors(mesh::UnstructuredMeshObject{P, 1, S, DT, NN}, symbol::Symbol, x) where {P, S, DT, NN<:NeighborsCellLinked}
     """
     Create a non-allocating iterator for particles in the 3 neighboring cells in 1D.
     """
@@ -709,7 +572,7 @@ function iterateNeighbors(mesh::UnstructuredMeshObject{P, 1, S, DT, NN}, symbol:
     )
 end
 
-function iterateNeighbors(mesh::UnstructuredMeshObject{P, 2, S, DT, NN}, symbol::Symbol, x, y) where {P, S, DT, NN<:NeighborsCellLinked}
+function iterateOverNeighbors(mesh::UnstructuredMeshObject{P, 2, S, DT, NN}, symbol::Symbol, x, y) where {P, S, DT, NN<:NeighborsCellLinked}
     """
     Create a non-allocating iterator for particles in the 9 neighboring cells in 2D.
     """
@@ -734,7 +597,7 @@ function iterateNeighbors(mesh::UnstructuredMeshObject{P, 2, S, DT, NN}, symbol:
     )
 end
 
-function iterateNeighbors(mesh::UnstructuredMeshObject{P, 3, S, DT, NN}, symbol::Symbol, x, y, z) where {P, S, DT, NN<:NeighborsCellLinked}
+function iterateOverNeighbors(mesh::UnstructuredMeshObject{P, 3, S, DT, NN}, symbol::Symbol, x, y, z) where {P, S, DT, NN<:NeighborsCellLinked}
     """
     Create a non-allocating iterator for particles in the 27 neighboring cells in 3D.
     """
@@ -758,24 +621,8 @@ function iterateNeighbors(mesh::UnstructuredMeshObject{P, 3, S, DT, NN}, symbol:
         gridX,
         gridY,
         gridZ,
-        mesh._neighbors.periodic[1],
-        mesh._neighbors.periodic[2],
-        mesh._neighbors.periodic[3]
+        false,
+        false,
+        false
     )
 end
-
-# Convenience functions for backward compatibility
-"""
-    collectNeighbors(iterator) -> Vector{Int}
-    
-Convert a neighbor iterator to a vector of particle indices.
-Use this when you need the old vector-based API.
-"""
-collectNeighbors(iterator) = collect(iterator)
-
-"""
-    collectNeighbors(mesh, symbol, coordinates...) -> Vector{Int}
-    
-Get all neighboring particles as a vector (allocating version).
-"""
-collectNeighbors(mesh, symbol, coords...) = collect(iterateNeighbors(mesh, symbol, coords...))
