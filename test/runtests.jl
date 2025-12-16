@@ -12,6 +12,7 @@ benchmark = true #just for internal optimizations
     using CUDA
     # include("testIndexing.jl")
     # include("testParameter.jl")
+    include("testDiffSym.jl")
 
     # include("testUnstructuredMesh.jl")
     # include("testUnstructuredMeshSCE.jl")
@@ -24,7 +25,8 @@ end
 
 if benchmark
 
-    include("test.jl")
+    # include("test.jl")
+    # include("debug_periodic.jl")
 
     N = 100000
     n = 10000
