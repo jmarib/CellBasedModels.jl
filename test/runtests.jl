@@ -13,7 +13,8 @@ benchmark = true #just for internal optimizations
     # include("testIndexing.jl")
     # include("testParameter.jl")
     # include("testDiffSym.jl")
-    include("testDiffAuto.jl")
+    # include("testDiffAuto.jl")
+    include("testDebugAutodif.jl")
 
     # include("testUnstructuredMesh.jl")
     # include("testUnstructuredMeshSCE.jl")
