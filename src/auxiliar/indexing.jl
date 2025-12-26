@@ -213,6 +213,15 @@ end
 #
 ########################################################################################
 
+@inline function positionToCartesian1D(pos::Tuple{<:Real}, simBox::AbstractMatrix{<:Real}, edgeSize::Tuple{<:Real}, cellShape::Tuple{Int})::Tuple{Int}
+    idx = clamp(floor((pos[1] - simBox[1, 1]) / edgeSize[1]) + 1, 1, cellShape[1])
+    return (Int(idx),)
+end
+@inline function positionToCartesian1D(x, simBox::AbstractMatrix{<:Real}, edgeSize::Tuple{<:Real}, cellShape::Tuple{Int,})::Tuple{Int}
+    idx = clamp(floor((x - simBox[1, 1]) / edgeSize[1]) + 1, 1, cellShape[1])
+    return (Int(idx),)
+end
+
 """
     positionToCartesian2D(pos::Tuple{<:Real, <:Real}, simBox::AbstractMatrix{<:Real}, edgeSize::Tuple{<:Real, <:Real}, cellShape::Tuple{Int,Int}) -> (ix::Int, iy::Int)
 
@@ -234,6 +243,11 @@ within a simulation box.
 @inline function positionToCartesian2D(pos::Tuple{<:Real, <:Real}, simBox::AbstractMatrix{<:Real}, edgeSize::Tuple{<:Real, <:Real}, cellShape::Tuple{Int,Int})::Tuple{Int,Int}
     idx = clamp(floor((pos[1] - simBox[1, 1]) / edgeSize[1]) + 1, 1, cellShape[1])
     idy = clamp(floor((pos[2] - simBox[2, 1]) / edgeSize[2]) + 1, 1, cellShape[2])
+    return (Int(idx), Int(idy))
+end
+@inline function positionToCartesian2D(x, y, simBox::AbstractMatrix{<:Real}, edgeSize::Tuple{<:Real, <:Real}, cellShape::Tuple{Int,Int})::Tuple{Int,Int}
+    idx = clamp(floor((x - simBox[1, 1]) / edgeSize[1]) + 1, 1, cellShape[1])
+    idy = clamp(floor((y - simBox[2, 1]) / edgeSize[2]) + 1, 1, cellShape[2])
     return (Int(idx), Int(idy))
 end
 
@@ -258,6 +272,24 @@ within a 3D simulation box.
     idz = clamp(floor((pos[3] - simBox[3, 1]) / edgeSize[3]) + 1, 1, cellShape[3])
     return (Int(idx), Int(idy), Int(idz))
 end
+@inline function positionToCartesian3D(x, y, z, simBox::AbstractMatrix{<:Real}, edgeSize::Tuple{<:Real, <:Real, <:Real}, cellShape::Tuple{Int,Int,Int})::NTuple{3,Int}
+    idx = clamp(floor((x - simBox[1, 1]) / edgeSize[1]) + 1, 1, cellShape[1])
+    idy = clamp(floor((y - simBox[2, 1]) / edgeSize[2]) + 1, 1, cellShape[2])
+    idz = clamp(floor((z - simBox[3, 1]) / edgeSize[3]) + 1, 1, cellShape[3])
+    return (Int(idx), Int(idy), Int(idz))
+end
+
+@inline function cartesianToLinear1D(pos::Tuple{Int,}, shape::Tuple{Int,})::Int
+    return pos[1]
+end
+@inline function cartesianToLinear1D(x::Real, shape::Tuple{Int,})::Int
+    return x
+end
+@inline function positionToLinear1D(x, simBox::AbstractMatrix{<:Real}, edgeSize::Tuple{<:Real}, cellShape::Tuple{Int})
+    idx = clamp(floor((x - simBox[1, 1]) / edgeSize[1]) + 1, 1, cellShape[1])
+
+    Int(idx)
+end
 
 """
     cartesianToLinear2D(pos::Tuple{Int,Int}, shape::Tuple{Int,Int}) -> Int
@@ -275,6 +307,15 @@ row-major layout.
 @inline function cartesianToLinear2D(pos::Tuple{Int,Int}, shape::Tuple{Int,Int})::Int
     return pos[1] + (pos[2]-1)*shape[1]
 end
+@inline function cartesianToLinear2D(x, y, shape::Tuple{Int,Int})::Int
+    return x + (y-1)*shape[1]
+end
+@inline function positionToLinear2D(x ,y, simBox::AbstractMatrix{<:Real}, edgeSize::Tuple{<:Real, <:Real}, cellShape::Tuple{Int,Int})
+    idx = clamp(floor((x - simBox[1, 1]) / edgeSize[1]) + 1, 1, cellShape[1])
+    idy = clamp(floor((y - simBox[2, 1]) / edgeSize[2]) + 1, 1, cellShape[2])
+
+    Int(idx + (idy-1)*cellShape[1])
+end
 
 """
     cartesianToLinear3D(pos::Tuple{Int,Int,Int}, shape::Tuple{Int,Int,Int}) -> Int
@@ -291,6 +332,20 @@ layout in 3D.
 """
 @inline function cartesianToLinear3D(pos::Tuple{Int,Int,Int}, shape::Tuple{Int,Int,Int})::Int
     return pos[1] + (pos[2]-1)*shape[1] + (pos[3]-1)*shape[1]*shape[2]
+end
+@inline function cartesianToLinear3D(x, y, z, shape::Tuple{Int,Int,Int})::Int
+    return x + (y-1)*shape[1] + (z-1)*shape[1]*shape[2]
+end
+@inline function positionToLinear3D(x ,y, z, simBox::AbstractMatrix{<:Real}, edgeSize::Tuple{<:Real, <:Real, <:Real}, cellShape::Tuple{Int,Int,Int})
+    idx = clamp(floor((x - simBox[1, 1]) / edgeSize[1]) + 1, 1, cellShape[1])
+    idy = clamp(floor((y - simBox[2, 1]) / edgeSize[2]) + 1, 1, cellShape[2])
+    idz = clamp(floor((z - simBox[3, 1]) / edgeSize[3]) + 1, 1, cellShape[3])
+
+    Int(idx + (idy-1)*cellShape[1] + (idz-1)*cellShape[1]*cellShape[2])
+end
+
+@inline function linearToCartesian1D(idx::Int, shape::Tuple{Int,})::Tuple{Int}
+    return (idx,)
 end
 
 """
@@ -458,6 +513,29 @@ including the center. Out-of-bounds neighbors are reported as `(-1, -1, -1)`.
     end, 27)
 end
 
+# @inline function linearNeighbors1D(idx::Int, shape::Tuple{Int,})::NTuple{3,Int}
+#     x, = linearToCartesian1D(idx, shape)  # 1-based cartesian coords
+#     # fixed 3x3 order: (-1,-1) .. (1,1)
+#     offsets = ((-1,),(0,),(1,))
+#     return ntuple(i -> begin
+#         dx, = offsets[i]
+#         xi = x + dx
+#         (1 ≤ xi ≤ shape[1]) ? cartesianToLinear1D(xi, shape) : -1
+#     end, 3)
+# end
+@inline function linearNeighbors1D(idx::Int, shape::NTuple{1,Int})::NTuple{3,Int}
+    x, = linearToCartesian1D(idx, shape)
+    nx, = shape
+
+    @inline lin(xi) =
+        (1 ≤ xi ≤ nx) ?
+        (xi) : -1
+
+    return (
+        lin(x-1), lin(x), lin(x+1),
+        )
+end
+
 """
     linearNeighbors2D(idx::Int, shape::Tuple{Int,Int}) -> NTuple{9,Int}
 
@@ -471,17 +549,31 @@ in a 2D grid. Includes the center; out-of-bounds as `-1`.
 # Returns
 - 9-tuple of linear indices in fixed 3×3 order (see [`cartesianNeighbors2D`]).
 """
-@inline function linearNeighbors2D(idx::Int, shape::Tuple{Int,Int})::NTuple{9,Int}
-    x, y = mortonToCartesian2D(idx)  # 1-based cartesian coords
-    # fixed 3x3 order: (-1,-1) .. (1,1)
-    offsets = ((-1,-1),(0,-1),(1,-1),
-               (-1, 0),(0, 0),(1, 0),
-               (-1, 1),(0, 1),(1, 1))
-    return ntuple(i -> begin
-        dx, dy = offsets[i]
-        xi = x + dx; yi = y + dy
-        (1 ≤ xi ≤ shape[1] && 1 ≤ yi ≤ shape[2]) ? cartesianToLinear2D((xi, yi), shape) : -1
-    end, 9)
+# @inline function linearNeighbors2D(idx::Int, shape::Tuple{Int,Int})::NTuple{9,Int}
+#     x, y = linearToCartesian2D(idx, shape)  # 1-based cartesian coords
+#     # fixed 3x3 order: (-1,-1) .. (1,1)
+#     offsets = ((-1,-1),(0,-1),(1,-1),
+#                (-1, 0),(0, 0),(1, 0),
+#                (-1, 1),(0, 1),(1, 1))
+#     return ntuple(i -> begin
+#         dx, dy = offsets[i]
+#         xi = x + dx; yi = y + dy
+#         (1 ≤ xi ≤ shape[1] && 1 ≤ yi ≤ shape[2]) ? cartesianToLinear2D(xi, yi, shape) : -1
+#     end, 9)
+# end
+@inline function linearNeighbors2D(idx::Int, shape::NTuple{2,Int})::NTuple{9,Int}
+    x, y = linearToCartesian2D(idx, shape)
+    nx, ny = shape
+
+    @inline lin(xi, yi) =
+        (1 ≤ xi ≤ nx) & (1 ≤ yi ≤ ny) ?
+        (xi + (yi - 1) * nx) : -1
+
+    return (
+        lin(x-1,y-1), lin(x  ,y-1), lin(x+1,y-1),
+        lin(x-1,y  ), lin(x  ,y  ), lin(x+1,y  ),
+        lin(x-1,y+1), lin(x  ,y+1), lin(x+1,y+1),
+        )
 end
 
 """
@@ -497,19 +589,42 @@ in a 3D grid. Includes the center; out-of-bounds as `-1`.
 # Returns
 - 27-tuple of linear indices in fixed z-major, then y, then x order.
 """
-@inline function linearNeighbors3D(idx::Int, shape::Tuple{Int,Int,Int})::NTuple{27,Int}
-    x, y, z = mortonToCartesian3D(idx)
-    # fixed 3x3x3 order: z-major, then y, then x
-    return ntuple(k -> begin
-        # map k ∈ 1..27 to (dx,dy,dz) ∈ {-1,0,1}^3
-        kk = k - 1
-        dx = (kk % 3) - 1
-        dy = ((kk ÷ 3) % 3) - 1
-        dz = ((kk ÷ 9) % 3) - 1
-        xi = x + dx; yi = y + dy; zi = z + dz
-        (1 ≤ xi ≤ shape[1] && 1 ≤ yi ≤ shape[2] && 1 ≤ zi ≤ shape[3]) ?
-            cartesianToLinear3D((xi, yi, zi), shape) : -1
-    end, 27)
+# @inline function linearNeighbors3D(idx::Int, shape::Tuple{Int,Int,Int})::NTuple{27,Int}
+#     x, y, z = linearToCartesian3D(idx, shape)
+#     # fixed 3x3x3 order: z-major, then y, then x
+#     return ntuple(k -> begin
+#         # map k ∈ 1..27 to (dx,dy,dz) ∈ {-1,0,1}^3
+#         kk = k - 1
+#         dx = (kk % 3) - 1
+#         dy = ((kk ÷ 3) % 3) - 1
+#         dz = ((kk ÷ 9) % 3) - 1
+#         xi = x + dx; yi = y + dy; zi = z + dz
+#         (1 ≤ xi ≤ shape[1] && 1 ≤ yi ≤ shape[2] && 1 ≤ zi ≤ shape[3]) ?
+#             cartesianToLinear3D(xi, yi, zi, shape) : -1
+#     end, 27)
+# end
+@inline function linearNeighbors3D(idx::Int, shape::NTuple{3,Int})::NTuple{27,Int}
+    x, y, z = linearToCartesian3D(idx, shape)
+    nx, ny, nz = shape
+    nxy = nx * ny
+
+    @inline lin(xi, yi, zi) =
+        (1 ≤ xi ≤ nx) & (1 ≤ yi ≤ ny) & (1 ≤ zi ≤ nz) ?
+        (xi + (yi - 1) * nx + (zi - 1) * nxy) : -1
+
+    return (
+        lin(x-1,y-1,z-1), lin(x  ,y-1,z-1), lin(x+1,y-1,z-1),
+        lin(x-1,y  ,z-1), lin(x  ,y  ,z-1), lin(x+1,y  ,z-1),
+        lin(x-1,y+1,z-1), lin(x  ,y+1,z-1), lin(x+1,y+1,z-1),
+
+        lin(x-1,y-1,z  ), lin(x  ,y-1,z  ), lin(x+1,y-1,z  ),
+        lin(x-1,y  ,z  ), lin(x  ,y  ,z  ), lin(x+1,y  ,z  ),
+        lin(x-1,y+1,z  ), lin(x  ,y+1,z  ), lin(x+1,y+1,z  ),
+
+        lin(x-1,y-1,z+1), lin(x  ,y-1,z+1), lin(x+1,y-1,z+1),
+        lin(x-1,y  ,z+1), lin(x  ,y  ,z+1), lin(x+1,y  ,z+1),
+        lin(x-1,y+1,z+1), lin(x  ,y+1,z+1), lin(x+1,y+1,z+1),
+    )
 end
 
 """

@@ -18,7 +18,7 @@ module CellBasedModels
     export @consistency_diffauto
     include("./auxiliar/debugging.jl")
     include("./auxiliar/algebra.jl")
-    # include("./auxiliar/indexing.jl")
+    include("./auxiliar/indexing.jl")
     # include("./auxiliar/meta.jl")
     # include("./auxiliar/recursiveCachedArrays.jl")
 
@@ -56,8 +56,9 @@ module CellBasedModels
     include("./AgentStructure/auxiliar.jl")
     export Node, Edge, Face, Volume, Agent
     export UnstructuredMesh, UnstructuredMeshField, UnstructuredMeshObject
+    export iterateOver
     include("./AgentStructure/unstructuredMesh.jl")
-    export iterateNeighbors, getNeighbors
+    export iterateOverNeighbors, getNeighbors
     export NeighborsFull
     include("./neighbors/neighborsFull.jl")
     export NeighborsCellLinked

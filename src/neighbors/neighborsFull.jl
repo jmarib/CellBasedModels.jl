@@ -47,25 +47,25 @@ function update!(mesh::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P, D
     #Renaming TO DO
 end
 
-function iterateNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol::Symbol, index::Int) where {P, D, S, DT, NN<:NeighborsFull}
+function iterateOverNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol::Symbol, index::Int) where {P, D, S, DT, NN<:NeighborsFull}
 
     return 1:lengthProperties(mesh._p[symbol])
 
 end
 
-function iterateNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol::Symbol, ::Any) where {P, D, S, DT, NN<:NeighborsFull}
+function iterateOverNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol::Symbol, ::Any) where {P, D, S, DT, NN<:NeighborsFull}
 
     return 1:lengthProperties(mesh._p[symbol])
 
 end
 
-function iterateNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol::Symbol, ::Any, ::Any) where {P, D, S, DT, NN<:NeighborsFull}
+function iterateOverNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol::Symbol, ::Any, ::Any) where {P, D, S, DT, NN<:NeighborsFull}
 
     return 1:lengthProperties(mesh._p[symbol])
 
 end
 
-function iterateNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol::Symbol, ::Any, ::Any, ::Any) where {P, D, S, DT, NN<:NeighborsFull}
+function iterateOverNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol::Symbol, ::Any, ::Any, ::Any) where {P, D, S, DT, NN<:NeighborsFull}
 
     return 1:lengthProperties(mesh._p[symbol])
 
@@ -74,7 +74,7 @@ end
 
 function getNeighbors(mesh::UnstructuredMeshObject{P, D, S, DT, NN}, symbol::Symbol, index::Int) where {P, D, S, DT, NN<:NeighborsFull}
 
-    return collect(iterateNeighbors(mesh, symbol, index))
+    return collect(iterateOverNeighbors(mesh, symbol, index))
 
 end
 

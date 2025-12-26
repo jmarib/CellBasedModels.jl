@@ -158,7 +158,7 @@ end
 ##########################################################################
 
 iterateAgents(mesh::AgentPointObject) = 1:mesh.n._N[]
-iterateNeighbors(mesh::AgentPointObject, agentIndex::Integer) = iterateNeighbors(mesh, :n, agentIndex)
+iterateOverNeighbors(mesh::AgentPointObject, agentIndex::Integer) = iterateOverNeighbors(mesh, :n, agentIndex)
 
 @generated function addAgent!(
     meshObject::AgentPointObject{P, D, DT, NN, PN},

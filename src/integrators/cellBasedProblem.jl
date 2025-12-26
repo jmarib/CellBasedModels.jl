@@ -95,7 +95,11 @@ function DifferentialEquations.init(problem::CBProblem; dt::Real, kwargs...)
 
     integrators = (;integratorsDict...)
 
-    return CBIntegrator{typeof(problem.u), typeof(integrators)}(problem.u, integrators, dt)
+    integrator = CBIntegrator{typeof(problem.u), typeof(integrators)}(problem.u, integrators, dt)
+
+    CellBasedModels.update!(integrator.u)
+
+    return integrator
 
 end
 
@@ -126,7 +130,7 @@ function DifferentialEquations.step!(integrator::CBIntegrator)
     for (scope, deintegrator) in pairs(integrator.integrators)
         if typeof(deintegrator) == Rule
             DifferentialEquations.step!(deintegrator)
-        end
+        end 
     end
     # Update Us
     for (scope, deintegrator) in pairs(integrator.integrators)

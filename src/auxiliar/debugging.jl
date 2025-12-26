@@ -5,7 +5,6 @@ using Printf
 # --------------------------
 # Helpers
 # --------------------------
-
 function _normalize_declared_symbol_debugauto(symex)
     if symex isa Symbol
         return (symex, symex)

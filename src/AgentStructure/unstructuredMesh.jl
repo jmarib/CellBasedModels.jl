@@ -626,7 +626,7 @@ function Base.copy(field::UnstructuredMeshField)
             r ? p : Base.copy(p) for (p, r) in zip(values(field._p), field._pReference)
         ),
         field._NP,
-        Base.copy(field._pReference),
+        field._pReference,  # Tuples are immutable, no need to copy
 
         field._id,
         field._idMax,
@@ -891,6 +891,8 @@ end
 #     return
 # end
 
+iterateOver(mesh::UnstructuredMeshField) = 1:lengthProperties(mesh)
+
 ######################################################################################################
 # UnstructuredMeshObject
 ######################################################################################################
@@ -965,8 +967,6 @@ function UnstructuredMeshObject(
         }(
             params, neighbors_
         )
-
-    update!(mesh)
 
     return mesh
 end
