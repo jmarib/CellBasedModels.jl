@@ -153,6 +153,8 @@ function update!(mesh::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P, D
     end
 
     #Renaming TO DO
+
+    return nothing
 end
 
 function assignCell(neighbors, x)
@@ -221,8 +223,6 @@ function fillPermTable!(permTable, cellOffset, cell, N, cellCounts)
     
     permTable[sortedPos] = originalParticleIndex
     """
-    
-    nCells = length(cellOffset) - 1
     
     cellCounts .= 0    
 
