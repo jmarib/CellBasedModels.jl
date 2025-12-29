@@ -110,10 +110,10 @@ function analyze_rule_code(kwargs, fdefs; type)
                         nothing
                         # error("Assignment to protected symbol $(join(chain_lhs, '.')) is forbidden.")
                         # @warn("Assignment to protected symbol '$(join(chain_lhs, '.'))' is might give unexpected behaviours. Just do it if you are not modifying the parameter in other way that might override it.")
-                    elseif lhs_root in tracked_syms && index_lhs && kwargs.broadcasting
-                        error("Assignment to tracked symbol $(join(chain_lhs, '.')) when `broadcasting=true` without a broadcasting operator is disallowed.")
-                    elseif lhs_root in tracked_syms && !index_lhs && !kwargs.broadcasting
-                        error("Assignment to vector-like field without indexing: $(join(chain_lhs, '.')). Use indexing (e.g. $(du_sym).scope.param[i] = ...).")
+                    # elseif lhs_root in tracked_syms && index_lhs && kwargs.broadcasting
+                    #     error("Assignment to tracked symbol $(join(chain_lhs, '.')) when `broadcasting=true` without a broadcasting operator is disallowed.")
+                    # elseif lhs_root in tracked_syms && !index_lhs && !kwargs.broadcasting
+                    #     error("Assignment to vector-like field without indexing: $(join(chain_lhs, '.')). Use indexing (e.g. $(du_sym).scope.param[i] = ...).")
                     elseif lhs_root in tracked_syms && index_lhs
                         push!(assigns, tuple(tail...))
                     # else
@@ -140,19 +140,19 @@ function analyze_rule_code(kwargs, fdefs; type)
                     nothing
                     # error("Assignment to protected symbol $(join(chain, '.')) is forbidden.")
                     # @warn("Assignment to protected symbol '$(join(chain, '.'))' is might give unexpected behaviours. Just do it if you are not modifying the parameter in other way that might override it.")
-                elseif root in tracked_syms && (ex.head in broadcast_heads) && !(kwargs.broadcasting)
-                    error("Broadcast assignment to tracked symbol $(join(chain, '.')) is forbidden without `broadcasting=true`.")
+                # elseif root in tracked_syms && (ex.head in broadcast_heads) && !(kwargs.broadcasting)
+                #     error("Broadcast assignment to tracked symbol $(join(chain, '.')) is forbidden without `broadcasting=true`.")
 
                 elseif root in tracked_syms && (ex.head in broadcast_heads)
                     push!(assigns, tuple(tail...))
 
-                elseif root in tracked_syms && (ex.head in normal_heads) && kwargs.broadcasting && !indexed
-                    error("Assignment to tracked symbol $(join(chain, '.')) when `broadcasting=true` without a broadcasting operator is disallowed.")
+                # elseif root in tracked_syms && (ex.head in normal_heads) && kwargs.broadcasting && !indexed
+                #     error("Assignment to tracked symbol $(join(chain, '.')) when `broadcasting=true` without a broadcasting operator is disallowed.")
                     
-                elseif root in tracked_syms && (ex.head in normal_heads) && kwargs.broadcasting && indexed
-                    error("Non-broadcast assignment to tracked symbol $(join(chain, '.')) is forbidden when `broadcasting=true`. Use broadcast assignment (e.g. `.=`). This is disallowed as in some platforms indexing is disallowed.")
+                # elseif root in tracked_syms && (ex.head in normal_heads) && kwargs.broadcasting && indexed
+                #     error("Non-broadcast assignment to tracked symbol $(join(chain, '.')) is forbidden when `broadcasting=true`. Use broadcast assignment (e.g. `.=`). This is disallowed as in some platforms indexing is disallowed.")
 
-                elseif root in tracked_syms && (ex.head in normal_heads) && !(kwargs.broadcasting) && indexed
+                elseif root in tracked_syms && (ex.head in normal_heads) && indexed
 
                     push!(assigns, tuple(tail...))
 
@@ -202,15 +202,12 @@ function extract_parameters(n, ex)
 
     mesh_name = nothing
     scope_name = nothing
-    broadcasting = false
     for arg in ex[1:end - n]
         @capture(arg, kwarg_=value_)
         if kwarg == :model
            mesh_name = value
         elseif kwarg == :scope
            scope_name = value
-        elseif kwarg == :broadcasting
-            broadcasting = value
         else
             error("Unknown keyword argument '$kwarg'")
         end
@@ -220,11 +217,9 @@ function extract_parameters(n, ex)
         error("Expected 'model' keyword argument.")
     elseif scope_name === nothing
         error("Expected 'scope' keyword argument.")
-    elseif !(broadcasting isa Bool)
-        error("'broadcasting' keyword argument must be a Bool.")
     end
 
-    return (mesh_name=mesh_name, scope_name=scope_name, broadcasting=broadcasting), functions
+    return (mesh_name=mesh_name, scope_name=scope_name), functions
 
 end
 

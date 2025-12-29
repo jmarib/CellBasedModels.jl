@@ -3,6 +3,7 @@ import CellBasedModels: lengthCache, lengthProperties, sizeFull, sizeFullCache, 
 import CellBasedModels: UnstructuredMeshField, UnstructuredMeshFieldStyle, UnstructuredMeshObject, UnstructuredMeshObjectStyle, unpack_voa
 import CellBasedModels: toCPU, toGPU, CPU, CPUSinglethread, CPUMultithreading
 import CellBasedModels: initNeighbors
+import KernelAbstractions
 
 lengthCache(field::UnstructuredMeshField{P}) where {P<:GPUCuda} = CUDA.@allowscalar field._NCache[1]
 lengthCache(field::UnstructuredMeshField{P}) where {P<:GPUCuDevice} = field._NCache[1]
@@ -163,4 +164,8 @@ function toGPU(field::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P<:CP
         p,
         n
     )
+end
+
+function KernelAbstractions.get_backend(::UnstructuredMeshObject{P}) where {P<:GPUCuda}
+    return CUDA.CUDABackend()
 end

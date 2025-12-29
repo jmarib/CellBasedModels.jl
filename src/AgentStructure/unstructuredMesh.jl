@@ -1,5 +1,6 @@
 import RecursiveArrayTools
 import LinearAlgebra
+import KernelAbstractions
 
 # Add ForwardDiff support for automatic differentiation
 using ForwardDiff: ForwardDiff
@@ -1448,3 +1449,7 @@ end
 #         return J
 #     end
 # end
+
+function KernelAbstractions.get_backend(::UnstructuredMeshObject{P}) where {P<:CPU}
+    return KernelAbstractions.CPU()
+end

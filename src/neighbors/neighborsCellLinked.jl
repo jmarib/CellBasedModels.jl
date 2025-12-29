@@ -56,7 +56,6 @@ function NeighborsCellLinked(
         box,
         cellSize,
         grid,
-        periodic,
         cell,
         cellOffset,
         cellCounts,

@@ -3,6 +3,7 @@ using CUDA
 using DifferentialEquations
 using Adapt
 import StaticArrays: SizedVector
+using KernelAbstractions
 
 @testset verbose = verbose "ABM - UnstructuredMesh" begin
 
@@ -676,43 +677,184 @@ import StaticArrays: SizedVector
 
         @testset "UnstructuredMeshObject - NeighborsCellLinked" begin
             # Cell-linked neighbors only make sense for spatial dimensions >= 1
+            # 1D
+            box = [0.0 1.0]
+            cellSize = [0.1]
+            mesh = UnstructuredMesh(1; n  = Node((nnCL=Int,nnFull=Int)))
+            @addRule model=mesh scope=integrator function get_neighbors1D(uNew, u, p, t)
+                @kernel function get_neighbors1D_kernel!(uNew, u, p, t)
+                    x1 = 0.0
+                    x2 = 0.0
+                    i = @index(Global)
+
+                    if i < length(u.n.x)
+                        u.n.nnFull[i] = 0
+                        u.n.nnCL[i] = 0
+                        x1 = u.n.x[i]
+                        # Full neighbors
+                        for j in iterateOver(u.n)
+                            i == j ? continue : nothing
+                            x2 = u.n.x[j]
+                            dist = sqrt((x2 - x1)^2)
+                            if dist <= 0.1
+                                uNew.n.nnFull[i] += 1
+                            end
+                        end
+                        # Cell-linked neighbors
+                        for j in iterateOverNeighbors(u, :n, x1)
+                            i == j ? continue : nothing
+                            x2 = u.n.x[j]
+                            dist = sqrt((x2 - x1)^2)
+                            if dist <= 0.1
+                                uNew.n.nnCL[i] += 1
+                            end
+                        end
+                    end
+                end
+
+                dev = get_backend(uNew)
+                nthreads = 256
+                if dev == CPU()
+                    nthreads = Threads.nthreads()
+                end
+                get_neighbors1D_kernel!(dev, nthreads)(uNew, u, p, t, ndrange=length(u.n.x))
+                KernelAbstractions.synchronize(dev)
+            end
+            obj = UnstructuredMeshObject(mesh, n = 10000, neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
+
+            obj.n.x .= rand(10000)
+
+            problem = CBProblem(mesh, obj, (0.0, 1.0))
+            integrator = init(problem, dt=0.1)
+            step!(integrator)
+
+            @test all(integrator.u.n.nnCL .== integrator.u.n.nnFull)
+
+            if CUDA.has_cuda()
+                obj_gpu = toGPU(obj)
+                problem_gpu = CBProblem(mesh, obj_gpu, (0.0, 1.0))
+                integrator_gpu = init(problem_gpu, dt=0.1)
+                step!(integrator_gpu)
+                # obj = toCPU(integrator_gpu.u)
+
+                @test all(Array(integrator_gpu.u.n.nnCL) .== Array(integrator_gpu.u.n.nnFull))
+            end
+
+            # 2D
+            box = [0.0 1.0; 0.0 1.0]
+            cellSize = [0.1, 0.1]
+            mesh = UnstructuredMesh(2; n  = Node((nnCL=Int,nnFull=Int)))
+            @addRule model=mesh scope=integrator function get_neighbors2D(uNew, u, p, t)
+                @kernel function get_neighbors2D_kernel!(uNew, u, p, t)
+                    x1 = y1 = 0.0
+                    x2 = y2 = 0.0
+                    i = @index(Global)
+
+                    if i < length(u.n.x)
+                        u.n.nnFull[i] = 0
+                        u.n.nnCL[i] = 0
+                        x1 = u.n.x[i]
+                        y1 = u.n.y[i]
+                        # Full neighbors
+                        for j in iterateOver(u.n)
+                            i == j ? continue : nothing
+                            x2 = u.n.x[j]
+                            y2 = u.n.y[j]
+                            dist = sqrt((x2 - x1)^2 + (y2 - y1)^2)
+                            if dist <= 0.1
+                                uNew.n.nnFull[i] += 1
+                            end
+                        end
+                        # Cell-linked neighbors
+                        for j in iterateOverNeighbors(u, :n, x1, y1)
+                            i == j ? continue : nothing
+                            x2 = u.n.x[j]
+                            y2 = u.n.y[j]
+                            dist = sqrt((x2 - x1)^2 + (y2 - y1)^2)
+                            if dist <= 0.1
+                                uNew.n.nnCL[i] += 1
+                            end
+                        end
+                    end
+                end
+
+                dev = get_backend(uNew)
+                nthreads = 256
+                if dev == CPU()
+                    nthreads = Threads.nthreads()
+                end
+                get_neighbors2D_kernel!(dev, nthreads)(uNew, u, p, t, ndrange=length(u.n.x))
+                KernelAbstractions.synchronize(dev)
+            end
+            obj = UnstructuredMeshObject(mesh, n = 10000, neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
+
+            obj.n.x .= rand(10000)
+            obj.n.y .= rand(10000)
+
+            problem = CBProblem(mesh, obj, (0.0, 1.0))
+            integrator = init(problem, dt=0.1)
+            step!(integrator)
+
+            @test all(integrator.u.n.nnCL .== integrator.u.n.nnFull)
+
+            if CUDA.has_cuda()
+                obj_gpu = toGPU(obj)
+                problem_gpu = CBProblem(mesh, obj_gpu, (0.0, 1.0))
+                integrator_gpu = init(problem_gpu, dt=0.1)
+                step!(integrator_gpu)
+                # obj = toCPU(integrator_gpu.u)
+
+                @test all(Array(integrator_gpu.u.n.nnCL) .== Array(integrator_gpu.u.n.nnFull))
+            end
+
             # 3D
             box = [0.0 1.0; 0.0 1.0; 0.0 1.0]
             cellSize = [0.1, 0.1, 0.1]
             mesh = UnstructuredMesh(3; n  = Node((nnCL=Int,nnFull=Int)))
-            @addRule model=mesh scope=integrator function get_neighbors(uNew, u, p, t)
-                x1 = y1 = z1 = 0.0
-                x2 = y2 = z2 = 0.0
-                for i in iterateOver(u.n)
-                    u.n.nnFull[i] = 0
-                    u.n.nnCL[i] = 0
-                    x1 = u.n.x[i]
-                    y1 = u.n.y[i]
-                    z1 = u.n.z[i]
-                    # Full neighbors
-                    for j in iterateOver(u.n)
-                        i == j ? continue : nothing
-                        x2 = u.n.x[j]
-                        y2 = u.n.y[j]
-                        z2 = u.n.z[j]
-                        dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
-                        if dist <= 0.1
-                            uNew.n.nnFull[i] += 1
+            @addRule model=mesh scope=integrator function get_neighbors3D(uNew, u, p, t)
+                @kernel function get_neighbors3D_kernel!(uNew, u, p, t)
+                    x1 = y1 = z1 = 0.0
+                    x2 = y2 = z2 = 0.0
+                    i = @index(Global)
+
+                    if i < length(u.n.x)
+                        u.n.nnFull[i] = 0
+                        u.n.nnCL[i] = 0
+                        x1 = u.n.x[i]
+                        y1 = u.n.y[i]
+                        z1 = u.n.z[i]
+                        # Full neighbors
+                        for j in iterateOver(u.n)
+                            i == j ? continue : nothing
+                            x2 = u.n.x[j]
+                            y2 = u.n.y[j]
+                            z2 = u.n.z[j]
+                            dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
+                            if dist <= 0.1
+                                uNew.n.nnFull[i] += 1
+                            end
                         end
-                    end
-                    # Cell-linked neighbors
-                    for j in iterateOverNeighbors(u, :n, x1, y1, z1)
-                        x2 = u.n.x[j]
-                        y2 = u.n.y[j]
-                        z2 = u.n.z[j]
-                        dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
-                        # println("i: $i, j: $j, dist: $dist")
-                        if dist <= 0.1
-                            uNew.n.nnCL[i] += 1
+                        # Cell-linked neighbors
+                        for j in iterateOverNeighbors(u, :n, x1, y1, z1)
+                            i == j ? continue : nothing
+                            x2 = u.n.x[j]
+                            y2 = u.n.y[j]
+                            z2 = u.n.z[j]
+                            dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
+                            if dist <= 0.1
+                                uNew.n.nnCL[i] += 1
+                            end
                         end
                     end
                 end
-                CellBasedModels.update!(uNew)
+
+                dev = get_backend(uNew)
+                nthreads = 256
+                if dev == CPU()
+                    nthreads = Threads.nthreads()
+                end
+                get_neighbors3D_kernel!(dev, nthreads)(uNew, u, p, t, ndrange=length(u.n.x))
+                KernelAbstractions.synchronize(dev)
             end
             obj = UnstructuredMeshObject(mesh, n = 10000, neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
 
@@ -723,17 +865,18 @@ import StaticArrays: SizedVector
             problem = CBProblem(mesh, obj, (0.0, 1.0))
             integrator = init(problem, dt=0.1)
             step!(integrator)
-            println(integrator.u._neighbors.grid)
-            println(integrator.u._neighbors.cellSize)
-            println(minimum(integrator.u._neighbors.cell.n))
-            println(maximum(integrator.u._neighbors.cell.n))
-            println(integrator.u._neighbors.cellOffset.n)
-            println(integrator.u._neighbors.cellCounts.n)
-            println(length(unique(integrator.u._neighbors.permTable.n)))
 
             @test all(integrator.u.n.nnCL .== integrator.u.n.nnFull)
-            println(integrator.u.n.nnCL) 
-            println(integrator.u.n.nnFull)
+
+            if CUDA.has_cuda()
+                obj_gpu = toGPU(obj)
+                problem_gpu = CBProblem(mesh, obj_gpu, (0.0, 1.0))
+                integrator_gpu = init(problem_gpu, dt=0.1)
+                step!(integrator_gpu)
+
+                @test all(Array(integrator_gpu.u.n.nnCL) .== Array(integrator_gpu.u.n.nnFull))
+            end
+
         end
 
         # @testset "UnstructuredMeshObject - CellLinked Algorithm Correctness" begin

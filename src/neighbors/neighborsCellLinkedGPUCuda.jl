@@ -1,5 +1,6 @@
 import CellBasedModels: assignCell!, countInCell!, fillPermTable!, platform
 import CellBasedModels: positionToLinear1D, positionToLinear2D, positionToLinear3D
+import CellBasedModels: GPUCuda, GPUCuDevice
 
 function initNeighborsGPU(
         dims, 
@@ -118,7 +119,7 @@ function assignCell!(cellArray, N, prop, neighbors::NeighborsCellLinked{3, GPUCu
     z = prop.z
     cell = cellArray
     
-    function kernel(cell, x, y, z, N, box, cellSize, grid, periodic)
+    function kernel(cell, x, y, z, N, box, cellSize, grid)
         i = (blockIdx().x - 1) * blockDim().x + threadIdx().x
         if i <= N
             @inbounds cell[i] = positionToLinear3D(x[i], y[i], z[i], box, cellSize, grid)
@@ -129,7 +130,7 @@ function assignCell!(cellArray, N, prop, neighbors::NeighborsCellLinked{3, GPUCu
     threads_per_block = 256
     blocks = div(N + threads_per_block - 1, threads_per_block)
     
-    CUDA.@cuda threads=threads_per_block blocks=blocks kernel(cell, x, y, z, N, neighbors.box, neighbors.cellSize, neighbors.grid, neighbors.periodic)
+    CUDA.@cuda threads=threads_per_block blocks=blocks kernel(cell, x, y, z, N, neighbors.box, neighbors.cellSize, neighbors.grid)
     CUDA.synchronize()
 end
 
@@ -160,28 +161,28 @@ function countInCell!(cellOffset::CUDA.CuArray, N, cell::CUDA.CuArray)
     return nothing
 end
 
-function fillPermTable!(permTable::CUDA.CuArray, cellOffset::CUDA.CuArray, cell::CUDA.CuArray, N, cellCounts)
+function fillPermTable!(permTable::CUDA.CuArray, cellOffset::CUDA.CuArray,
+                        cell::CUDA.CuArray, N, cellCounts)
 
-    cellCounts .= 0    
+    cellCounts .= 0
 
-    # Count particles per cell using atomic operations
     function fill_permtable_kernel(permTable, cell, cellOffset, N, cellCounts)
         i = (blockIdx().x - 1) * blockDim().x + threadIdx().x
         if i <= N
             cellIdx = cell[i]
             p = CUDA.@atomic cellCounts[cellIdx] += 1
-            pos = cellOffset[cellIdx] + p
-
+            pos = cellOffset[cellIdx] + p + 1
             permTable[pos] = i
         end
-        return nothing
+        return
     end
 
-    threads_per_block = 256
-    blocks = div(N + threads_per_block - 1, threads_per_block)
+    threads = 256
+    blocks  = cld(N, threads)
 
-    CUDA.@cuda threads=threads_per_block blocks=blocks fill_permtable_kernel(permTable, cell, cellOffset, N, cellCounts)
-    CUDA.synchronize()
-    
+    CUDA.@cuda threads=threads blocks=blocks fill_permtable_kernel(
+        permTable, cell, cellOffset, N, cellCounts)
+
     return nothing
 end
+

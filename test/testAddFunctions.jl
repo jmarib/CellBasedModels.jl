@@ -9,14 +9,13 @@ using MacroTools: @capture, postwalk
 
     @testset "Capturing patterns" begin
         props = (a = Float64, b = Int)
-        mesh = UnstructuredMesh(2; propertiesAgent=props)
+        mesh = UnstructuredMesh(2; n=Node(props))
 
         # Direct assignment to protected symbol (u)
         kwargs, functions = CellBasedModels.extract_parameters(1,
             ( 
                 :(model = mesh),
                 :(scope = :mechanics),
-                :(broadcasting = false),
                 :(
                     function rule_bad1!(du, u, p, t)
                         du = 5
@@ -31,7 +30,6 @@ using MacroTools: @capture, postwalk
             ( 
                 :(model = mesh),
                 :(scope = :mechanics),
-                :(broadcasting = false),
                 :(
                     function rule_bad2!(du, u, p, t)
                         u.a.a[1] = 1.0
@@ -40,81 +38,16 @@ using MacroTools: @capture, postwalk
             )
         )
         # @test_logs :warn CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)        # Test that it runs without error and produces a warning
-        @test_nowarn @test_logs (:warn,) begin
-            CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
-        end
+        @test_nowarn CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
 
         # Direct assignment to tracked symbol (du)
         kwargs, functions = CellBasedModels.extract_parameters(1,
             ( 
                 :(model = mesh),
                 :(scope = :mechanics),
-                :(broadcasting = false),
                 :(
                     function rule_bad3!(du, u, p, t)
                         du = zeros(10)
-                    end
-                ),
-            )
-        )
-        @test_throws ErrorException CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
-
-        # Assignment without indexing when not broadcasting
-        kwargs, functions = CellBasedModels.extract_parameters(1,
-            ( 
-                :(model = mesh),
-                :(scope = :mechanics),
-                :(broadcasting = false),
-                :(
-                    function rule_bad4!(du, u, p, t)
-                        du.a.a = zeros(10)
-                    end
-                ),
-            )
-        )
-        @test_throws ErrorException CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
-
-        # Broadcast assignment without broadcasting=true
-        kwargs, functions = CellBasedModels.extract_parameters(1,
-            ( 
-                :(model = mesh),
-                :(scope = :mechanics),
-                :(broadcasting = false),
-                :(
-                    function rule_bad5!(du, u, p, t)
-                        du.a.a .= 1.0
-                    end
-                ),
-            )
-        )
-        @test_throws ErrorException CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
-
-        # Non-broadcast assignment when broadcasting=true
-        kwargs, functions = CellBasedModels.extract_parameters(1,
-            ( 
-                :(model = mesh),
-                :(scope = :mechanics),
-                :(broadcasting = true),
-                :(
-                    function rule_bad6!(du, u, p, t)
-                        du.a.a[1] = 1.0
-                    end
-                ),
-            )
-        )
-        @test_throws ErrorException CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
-
-        # Indexed assignment when broadcasting=true
-        kwargs, functions = CellBasedModels.extract_parameters(1,
-            ( 
-                :(model = mesh),
-                :(scope = :mechanics),
-                :(broadcasting = true),
-                :(
-                    function rule_bad7!(du, u, p, t)
-                        for i in 1:10
-                            du.a.a[i] = 1.0
-                        end
                     end
                 ),
             )
@@ -126,7 +59,6 @@ using MacroTools: @capture, postwalk
             ( 
                 :(model = mesh),
                 :(scope = :mechanics),
-                :(broadcasting = false),
                 :(
                     function rule_good!(du, u, p, t)
                         for i in 1:length(u.a.a)
@@ -143,7 +75,6 @@ using MacroTools: @capture, postwalk
             ( 
                 :(model = mesh),
                 :(scope = :mechanics),
-                :(broadcasting = true),
                 :(
                     function rule_good!(du, u, p, t)
                         du.a.a .= 1.0
@@ -158,7 +89,6 @@ using MacroTools: @capture, postwalk
             ( 
                 :(model = mesh),
                 :(scope = :mechanics),
-                :(broadcasting = false),
                 :(
                     function rule_alias1!(du, u, p, t)
                         x = du.a.a
@@ -174,7 +104,6 @@ using MacroTools: @capture, postwalk
             ( 
                 :(model = mesh),
                 :(scope = :mechanics),
-                :(broadcasting = false),
                 :(
                     function rule_alias2!(du, u, p, t)
                         x = du.a.a
@@ -191,7 +120,6 @@ using MacroTools: @capture, postwalk
             ( 
                 :(model = mesh),
                 :(scope = :mechanics),
-                :(broadcasting = false),
                 :(
                     function rule_alias_bad1!(du, u, p, t)
                         x = u.a.a
@@ -200,9 +128,7 @@ using MacroTools: @capture, postwalk
                 ),
             )
         )
-        @test_nowarn @test_logs (:warn,) begin
-            CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
-        end
+        @test_nowarn CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
 
     end
 
@@ -212,7 +138,6 @@ using MacroTools: @capture, postwalk
             ( 
                 :(model = mesh),
                 :(scope = :mechanics),
-                :(broadcasting = false),
                 :(
                     function rule_alias_bad1!(du, u, p, t)
                         x = du.a
@@ -232,6 +157,36 @@ using MacroTools: @capture, postwalk
         code = CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
         @test occursin("Tuple[(:a, :a), (:a, :c), (:a, :d)]", "$code")
 
+        kwargs, functions = CellBasedModels.extract_parameters(1,
+            ( 
+                :(model = mesh),
+                :(scope = :mechanics),
+                :(
+                    function rule_alias_bad1!(du, u, p, t)
+                        @kernel function f(du, u, p, t)
+                            x = du.a
+                            x.a[1] = 1.0
+                            x = 9
+                            x.b[1] = 2
+                            y = du
+                            z = y.a
+                            z.c[1] = 2
+                            for i in 1:10
+                                du.a.d[i] = 3.0
+                            end
+                        end
+
+                        backend = get_backend(du)
+                        mul2_kernel(backend, 64)(A, ndrange=size(du))
+                        synchronize(backend)
+                    end
+                ),
+            )
+        )
+        code = CellBasedModels.analyze_rule_code(kwargs, functions; type=:RULE)
+        @test occursin("Tuple[(:a, :a), (:a, :c), (:a, :d)]", "$code")
+
+
     end
 
     #######################################################################
@@ -243,21 +198,21 @@ using MacroTools: @capture, postwalk
         @testset "@addRule - basic functionality" begin
             props = (a = Float64, b = Int)
 
-            mesh = UnstructuredMesh(2; propertiesAgent=props)
+            mesh = UnstructuredMesh(2; n=Node(props))
             # Valid rule without broadcasting
             @test_nowarn @addRule(model=mesh, scope=mechanics,
                 function rule1!(du, u, p, t)
-                    for i in 1:length(u.a)
-                        du.a.a[i] = u.a.a[i] + 1.0
-                        du.a.b[i] = u.a.b[i] + 1
+                    for i in 1:length(u.n)
+                        du.n.a[i] = u.n.a[i] + 1.0
+                        du.n.b[i] = u.n.b[i] + 1
                     end
                 end
             )
             # Valid rule with broadcasting
-            @test_nowarn @addRule(model=mesh, scope=mechanics2, broadcasting=true,
+            @test_nowarn @addRule(model=mesh, scope=mechanics2,
                 function rule2!(du, u, p, t)
-                    du.a.a .= u.a.a .+ 1.0
-                    du.a.b .= u.a.b .+ 1
+                    du.n.a .= u.n.a .+ 1.0
+                    du.n.b .= u.n.b .+ 1
                 end
             )
             # Test that functions are properly added to mesh
@@ -269,29 +224,23 @@ using MacroTools: @capture, postwalk
         @testset "@addRule - parameter validation" begin
             props = (a = Float64, b = Int)
 
-            mesh = UnstructuredMesh(2; propertiesAgent=props)
+            mesh = UnstructuredMesh(2; n=Node(props))
             # Missing model parameter
             @test_throws LoadError @eval @addRule(scope=mechanics,
                 function rule_bad1!(du, u, p, t)
-                    du.a.a[1] = 1.0
+                    du.n.a[1] = 1.0
                 end
             )
             # Missing scope parameter
             @test_throws LoadError @eval @addRule(model=mesh,
                 function rule_bad2!(du, u, p, t)
-                    du.a.a[1] = 1.0
-                end
-            )
-            # Invalid broadcasting parameter
-            @test_throws LoadError @eval @addRule(model=mesh, scope=mechanics, broadcasting="true",
-                function rule_bad3!(du, u, p, t)
-                    du.a.a .= 1.0
+                    du.n.a[1] = 1.0
                 end
             )
             # Wrong number of function arguments
             @test_throws LoadError @eval @addRule(model=mesh, scope=mechanics,
                 function rule_bad4!(du, u, p)
-                    du.a.a[1] = 1.0
+                    du.n.a[1] = 1.0
                 end
             )
         end
@@ -302,7 +251,7 @@ using MacroTools: @capture, postwalk
 
         @testset "@addODE - basic functionality" begin
             props = (a = Float64, b=Float64)
-            mesh = UnstructuredMesh(2; propertiesNode=props)
+            mesh = UnstructuredMesh(2; n=Node(props))
             # Valid ODE without broadcasting
             @test_nowarn @addODE(model=mesh, scope=biochemistry,
                 function ode1!(du, u, p, t)
@@ -312,7 +261,7 @@ using MacroTools: @capture, postwalk
                 end
             )
             # Valid ODE with broadcasting
-            @test_nowarn @addODE(model=mesh, scope=biochemistry2, broadcasting=true,
+            @test_nowarn @addODE(model=mesh, scope=biochemistry2,
                 function ode2!(du, u, p, t)
                     du.n.b .= -u.n.a
                 end
@@ -325,29 +274,23 @@ using MacroTools: @capture, postwalk
 
         @testset "@addODE - parameter validation" begin
             props = (a = Float64, b=Float64)
-            mesh = UnstructuredMesh(2; propertiesAgent=props)
+            mesh = UnstructuredMesh(2; n=Node(props))
             # Missing model parameter
             @test_throws LoadError @eval @addODE(scope=mechanics,
                 function rule_bad1!(du, u, p, t)
-                    du.a.a[1] = 1.0
+                    du.n.a[1] = 1.0
                 end
             )
             # Missing scope parameter
             @test_throws LoadError @eval @addODE(model=mesh,
                 function rule_bad2!(du, u, p, t)
-                    du.a.a[1] = 1.0
-                end
-            )
-            # Invalid broadcasting parameter
-            @test_throws LoadError @eval @addODE(model=mesh, scope=mechanics, broadcasting="true",
-                function rule_bad3!(du, u, p, t)
-                    du.a.a .= 1.0
+                    du.n.a[1] = 1.0
                 end
             )
             # Wrong number of function arguments
             @test_throws LoadError @eval @addODE(model=mesh, scope=mechanics,
                 function rule_bad4!(du, u, p)
-                    du.a.a[1] = 1.0
+                    du.n.a[1] = 1.0
                 end
             )
         end
@@ -359,7 +302,7 @@ using MacroTools: @capture, postwalk
 
         @testset "@addSDE - basic functionality" begin
             props = (a = Float64, b=Float64)
-            mesh = UnstructuredMesh(2; propertiesNode=props)
+            mesh = UnstructuredMesh(2; n=Node(props))
             # Valid SDE without broadcasting
             @test_nowarn @addSDE(model=mesh, scope=biochemistry,
                 function sde1!(du, u, p, t)
@@ -374,7 +317,7 @@ using MacroTools: @capture, postwalk
                 end
             )
             # Valid ODE with broadcasting
-            @test_nowarn @addSDE(model=mesh, scope=biochemistry2, broadcasting=true,
+            @test_nowarn @addSDE(model=mesh, scope=biochemistry2,
                 function ode2!(du, u, p, t)
                     du.n.b .= -u.n.a
                 end,
@@ -390,7 +333,7 @@ using MacroTools: @capture, postwalk
 
         @testset "@addSDE - parameter validation" begin
             props = (a = Float64, b=Float64)
-            mesh = UnstructuredMesh(2; propertiesAgent=props)
+            mesh = UnstructuredMesh(2; n=Node(props))
             # Missing model parameter
             @test_throws LoadError @eval @addSDE(scope=mechanics,
                 function rule_bad1!(du, u, p, t)
@@ -407,15 +350,6 @@ using MacroTools: @capture, postwalk
                 end,
                 function rule_noise_bad2!(du, u, p, t)
                     du.a.a[1] = 0.1 * randn()
-                end
-            )
-            # Invalid broadcasting parameter
-            @test_throws LoadError @eval @addSDE(model=mesh, scope=mechanics, broadcasting="true",
-                function rule_bad3!(du, u, p, t)
-                    du.a.a .= 1.0
-                end,
-                function rule_noise_bad3!(du, u, p, t)
-                    du.a.a .= 0.1 * randn()
                 end
             )
             # Wrong number of function arguments
