@@ -302,7 +302,7 @@ struct UnstructuredMeshField{
             P, DT,
             PR, PRN, PRC,
             IDVI, IDAI,    
-            # VI1, VI2, VI3, VI4,
+            VI1, VI2, VI3, VI4,
             AI, VB, SI, VVNT, AB            
         }
     _p::PR
@@ -312,10 +312,10 @@ struct UnstructuredMeshField{
     _id::IDVI
     _idMax::IDAI
 
-    # _nodes1::VI1
-    # _nodes2::VI2
-    # _nodes3::VI3
-    # _nodes4::VI4
+    _nodes1::VI1
+    _nodes2::VI2
+    _nodes3::VI3
+    _nodes4::VI4
 
     _N::AI
     _NCache::AI
@@ -328,6 +328,61 @@ struct UnstructuredMeshField{
     _FlagOverflow::AB
 end
 Adapt.@adapt_structure UnstructuredMeshField
+
+const UnstructuredMeshNode{
+            P, DT,
+            PR, PRN, PRC,
+            IDVI, IDAI,    
+            AI, VB, SI, VVNT, AB            
+        } = UnstructuredMeshField{
+            P, DT,
+            PR, PRN, PRC,
+            IDVI, IDAI,    
+            Nothing, Nothing, Nothing, Nothing,
+            AI, VB, SI, VVNT, AB            
+        }
+
+const UnstructuredMeshEdge{
+            P, DT,
+            PR, PRN, PRC,
+            IDVI, IDAI,    
+            VI1, VI2,
+            AI, VB, SI, VVNT, AB            
+        } = UnstructuredMeshField{
+            P, DT,
+            PR, PRN, PRC,
+            IDVI, IDAI,    
+            VI1, VI2, Nothing, Nothing,
+            AI, VB, SI, VVNT, AB            
+        }
+
+const UnstructuredMeshFace{
+            P, DT,
+            PR, PRN, PRC,
+            IDVI, IDAI,    
+            VI1, VI2, VI3,
+            AI, VB, SI, VVNT, AB            
+        } = UnstructuredMeshField{
+            P, DT,
+            PR, PRN, PRC,
+            IDVI, IDAI,    
+            VI1, VI2, VI3, Nothing,
+            AI, VB, SI, VVNT, AB            
+        }
+
+const UnstructuredMeshVolume{
+            P, DT,
+            PR, PRN, PRC,
+            IDVI, IDAI,    
+            VI1, VI2, VI3, VI4,
+            AI, VB, SI, VVNT, AB            
+        } = UnstructuredMeshField{
+            P, DT,
+            PR, PRN, PRC,
+            IDVI, IDAI,    
+            VI1, VI2, VI3, VI4,
+            AI, VB, SI, VVNT, AB            
+        }
 
 function UnstructuredMeshField(
         meshProperties::AbstractUnstructuredMeshProperty;
@@ -347,6 +402,29 @@ function UnstructuredMeshField(
     else
         _id = nothing
         _idMax = nothing
+    end
+
+    # Initialize node connectivity based on mesh property type
+    if meshProperties isa Node || meshProperties isa Agent
+        _nodes1 = nothing
+        _nodes2 = nothing
+        _nodes3 = nothing
+        _nodes4 = nothing
+    elseif meshProperties isa Edge
+        _nodes1 = zeros(Int, NCache)
+        _nodes2 = zeros(Int, NCache)
+        _nodes3 = nothing
+        _nodes4 = nothing
+    elseif meshProperties isa Face
+        _nodes1 = zeros(Int, NCache)
+        _nodes2 = zeros(Int, NCache)
+        _nodes3 = zeros(Int, NCache)
+        _nodes4 = nothing
+    elseif meshProperties isa Volume
+        _nodes1 = zeros(Int, NCache)
+        _nodes2 = zeros(Int, NCache)
+        _nodes3 = zeros(Int, NCache)
+        _nodes4 = zeros(Int, NCache)
     end
 
     _N = Threads.Atomic{Int}(N)
@@ -377,6 +455,10 @@ function UnstructuredMeshField(
 
     IDVI = typeof(_id)
     IDAI = typeof(_idMax)
+    VI1 = typeof(_nodes1)
+    VI2 = typeof(_nodes2)
+    VI3 = typeof(_nodes3)
+    VI4 = typeof(_nodes4)
 
     AI = typeof(_N)
     AB = typeof(_FlagOverflow)
@@ -391,7 +473,8 @@ function UnstructuredMeshField(
     UnstructuredMeshField{
             P, DT,
             PR, PRN, PRC, 
-            IDVI, IDAI,    
+            IDVI, IDAI,
+            VI1, VI2, VI3, VI4,
             AI, VB, SI, VVNT, AB
         }(
             _p,
@@ -400,6 +483,11 @@ function UnstructuredMeshField(
 
             _id,
             _idMax,
+
+            _nodes1,
+            _nodes2,
+            _nodes3,
+            _nodes4,
 
             _N,
             _NCache,
@@ -420,6 +508,11 @@ function UnstructuredMeshField(
 
             _id,
             _idMax,
+
+            _nodes1,
+            _nodes2,
+            _nodes3,
+            _nodes4,
 
             _N,
             _NCache,
@@ -448,6 +541,10 @@ function UnstructuredMeshField(
 
     IDVI = typeof(_id)
     IDAI = typeof(_idMax)
+    VI1 = typeof(_nodes1)
+    VI2 = typeof(_nodes2)
+    VI3 = typeof(_nodes3)
+    VI4 = typeof(_nodes4)
 
     AI = typeof(_N)
     AB = typeof(_FlagOverflow)
@@ -458,7 +555,8 @@ function UnstructuredMeshField(
     UnstructuredMeshField{
             P, DT,
             PR, PRN, PRC,
-            IDVI, IDAI,    
+            IDVI, IDAI,
+            VI1, VI2, VI3, VI4,
             AI, VB, SI, VVNT, AB,
         }(
             _p,
@@ -467,6 +565,11 @@ function UnstructuredMeshField(
 
             _id,
             _idMax,
+
+            _nodes1,
+            _nodes2,
+            _nodes3,
+            _nodes4,
 
             _N,
             _NCache,
@@ -483,12 +586,14 @@ end
 function Base.show(io::IO, x::UnstructuredMeshField{
             P, DT,
             PR, PRN, PRC, 
-            IDVI, IDAI,    
+            IDVI, IDAI,
+            VI1, VI2, VI3, VI4,
             AI, VB, SI, VVNT, AB,
         }) where {
             P, DT,
             PR, PRN, PRC,
-            IDVI, IDAI,    
+            IDVI, IDAI,
+            VI1, VI2, VI3, VI4,
             AI, VB, SI, VVNT, AB, 
         } 
     
@@ -497,6 +602,18 @@ function Base.show(io::IO, x::UnstructuredMeshField{
     println(io, "\t" * repeat("-", 40))
     println(io, @sprintf("\t%-25s %-15s", "_id", IDVI))
     println(io, @sprintf("\t%-25s %-15s", "_idMax", IDAI))
+    if VI1 !== Nothing
+        println(io, @sprintf("\t%-25s %-15s", "_nodes1", VI1))
+    end
+    if VI2 !== Nothing
+        println(io, @sprintf("\t%-25s %-15s", "_nodes2", VI2))
+    end
+    if VI3 !== Nothing
+        println(io, @sprintf("\t%-25s %-15s", "_nodes3", VI3))
+    end
+    if VI4 !== Nothing
+        println(io, @sprintf("\t%-25s %-15s", "_nodes4", VI4))
+    end
     println(io, @sprintf("\t%-25s %-15s", "_N", AI))
     println(io, @sprintf("\t%-25s %-15s", "_NCache", AI))
     println(io, @sprintf("\t%-25s %-15s", "_FlagsSurvived", VB))
@@ -527,11 +644,13 @@ function show(io::IO, ::Type{UnstructuredMeshField{
             P, DT,
             PR, PRN, PRC,
             IDVI, IDAI,
+            VI1, VI2, VI3, VI4,
             AI, VB, SI, VVNT, AB,
         }}) where {
             P, DT,
             PR, PRN, PRC,
             IDVI, IDAI,
+            VI1, VI2, VI3, VI4,
             AI, VB, SI, VVNT, AB,
         } 
     for (n, t) in zip(PR.parameters[1], PR.parameters[2].parameters)
@@ -539,6 +658,18 @@ function show(io::IO, ::Type{UnstructuredMeshField{
     end
     print(io, "_id::", IDVI, ", ")
     print(io, "_idMax::", IDAI, ", ")
+    if VI1 !== Nothing
+        print(io, "_nodes1::", VI1, ", ")
+    end
+    if VI2 !== Nothing
+        print(io, "_nodes2::", VI2, ", ")
+    end
+    if VI3 !== Nothing
+        print(io, "_nodes3::", VI3, ", ")
+    end
+    if VI4 !== Nothing
+        print(io, "_nodes4::", VI4, ", ")
+    end
     print(io, "_N::", AI, ", ")
     print(io, "_NCache::", AI, ", ")
     print(io, "_FlagsSurvived::", VB, ", ")
@@ -554,13 +685,14 @@ end
             P, DT,
             PR, PRN, PRC,
             IDVI, IDAI,
+            VI1, VI2, VI3, VI4,
             AI, VB, SI, VVNT, AB,            
         }, s::Symbol) where {
             P, DT,
             PR, PRN, PRC,
             IDVI, IDAI,
-            AI, VB, SI, VVNT, AB,
-        }
+            VI1, VI2, VI3, VI4,
+            AI, VB, SI, VVNT, AB}
     # build a clause for each fieldname in T
     general = [
         :(if s === $(QuoteNode(name)); return getfield(field, $(QuoteNode(name))); end)
@@ -632,6 +764,11 @@ function Base.copy(field::UnstructuredMeshField)
         field._id,
         field._idMax,
 
+        field._nodes1,
+        field._nodes2,
+        field._nodes3,
+        field._nodes4,
+
         field._N,
         field._NCache,
         field._FlagsSurvived,
@@ -658,6 +795,11 @@ function partialCopy(field::UnstructuredMeshField, args)
 
         field._id,
         field._idMax,
+
+        field._nodes1,
+        field._nodes2,
+        field._nodes3,
+        field._nodes4,
 
         field._N,
         field._NCache,
@@ -686,6 +828,11 @@ function Base.similar(field::UnstructuredMeshField)
         field._id,
         field._idMax,
 
+        field._nodes1,
+        field._nodes2,
+        field._nodes3,
+        field._nodes4,
+
         field._N,
         field._NCache,
         field._FlagsSurvived,
@@ -710,6 +857,11 @@ function Base.zero(field::UnstructuredMeshField)
 
         field._id,
         field._idMax,
+
+        field._nodes1,
+        field._nodes2,
+        field._nodes3,
+        field._nodes4,
 
         field._N,
         field._NCache,

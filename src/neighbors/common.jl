@@ -1,0 +1,25 @@
+function compactUnstructuredMeshField!(prop::UnstructuredMeshField, perm::AbstractVector{Int}, aux::NamedTuple, NNew)
+    N = lengthProperties(prop)
+    for (fieldname, field) in pairs(prop._p)
+        aux_field = getfield(aux, fieldname)
+        compactArray!(field, aux_field, perm, N, NNew)
+    end
+    prop._N[] = NNew
+    return nothing
+end
+
+function compactArray!(data::AbstractArray, auxBuffer::AbstractArray, perm::AbstractVector{Int}, N::Int, NNew::Int)
+    # Copy data to target positions using auxiliary buffer (parallelizable)
+    @inbounds for i in 1:N
+        if perm[i] != 0
+            auxBuffer[perm[i]] = data[i]
+        end
+    end
+    # Copy back from auxiliary buffer to original array
+    @inbounds @views data[1:NNew] .= auxBuffer[1:NNew]
+    return nothing
+end
+
+function renameElements!(mesh::UnstructuredMeshObject)
+
+end

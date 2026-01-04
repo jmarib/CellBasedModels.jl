@@ -59,6 +59,8 @@ module CellBasedModels
     export iterateOver
     include("./AgentStructure/unstructuredMesh.jl")
     export iterateOverNeighbors, getNeighbors
+    
+    include("./neighbors/common.jl")
     export NeighborsFull
     include("./neighbors/neighborsFull.jl")
     export NeighborsCellLinked

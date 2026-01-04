@@ -8,90 +8,52 @@ using Profile
 using Profile.Allocs
 using PProf
 
-props = (
-        a = Parameter(Float64, description="param a", dimensions=:M, defaultValue=1.0),
-        b = Parameter(Int, description="param b", dimensions=:count, defaultValue=0),
-    )
+            # 3D
+            box = [0.0 1.0; 0.0 1.0; 0.0 1.0]
+            cellSize = [0.1, 0.1, 0.1]
+            mesh = UnstructuredMesh(3; n  = Node((nnCL=Int,nnFull=Int)))
+            @addRule model=mesh scope=integrator function get_neighbors3D(uNew, u, p, t)
+                x1 = y1 = z1 = 0.0
+                x2 = y2 = z2 = 0.0
+                for i in iterateOver(u.n)
+                    u.n.nnFull[i] = 0
+                    u.n.nnCL[i] = 0
+                    x1 = u.n.x[i]
+                    y1 = u.n.y[i]
+                    z1 = u.n.z[i]
+                    # Full neighbors
+                    for j in iterateOver(u.n)
+                        i == j ? continue : nothing
+                        x2 = u.n.x[j]
+                        y2 = u.n.y[j]
+                        z2 = u.n.z[j]
+                        dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
+                        if dist <= 0.1
+                            uNew.n.nnFull[i] += 1
+                        end
+                    end
+                    # Cell-linked neighbors
+                    for j in iterateOverNeighbors(u, :n, x1, y1, z1)
+                        i == j ? continue : nothing
+                        x2 = u.n.x[j]
+                        y2 = u.n.y[j]
+                        z2 = u.n.z[j]
+                        dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
+                        # println("Index: ", (i,j), (x1,y1,z1), (x2,y2,z2), dist)
+                        # println("i: $i, j: $j, dist: $dist")
+                        if dist <= 0.1
+                            uNew.n.nnCL[i] += 1
+                        end
+                    end
+                end
+                CellBasedModels.update!(uNew)
+            end
+            obj = UnstructuredMeshObject(mesh, n = 10000, neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
 
-mesh = UnstructuredMesh(
-    3;
-    propertiesAgent  = props,
-)
+            obj.n.x .= rand(10000)
+            obj.n.y .= rand(10000)
+            obj.n.z .= rand(10000)
 
-# @addRule(model=mesh, scope=mechanics,
-# function f!(du, u, p, t)
-
-#     for i in 1:length(u.a)
-#         du.a.a[i] = rand()
-#         du.a.b[i] += 1
-#     end
-
-# end
-# )
-
-@addODE(model=mesh, scope=biochemistry, broadcasting=true,
-function g!(du, u, p, t)
-
-    @inbounds du.n.x .= 1
-
-end
-)
-
-# println(mesh)
-
-N = 100000
-function evolve!(integrator, steps)
-    for i in 1:steps
-        step!(integrator)
-    end
-end
-
-meshObject = UnstructuredMeshObject(
-        mesh,
-        # agentN=10,
-        nodeN=N,
-    )
-
-problem = CBProblem(
-    mesh,
-    meshObject,
-    (0.0, 1.0),
-)
-integrator = init(
-    problem,
-    dt=0.1,
-    biochemistry=Euler()
-)
-
-# @code_warntype step!(integrator)
-
-# Profile.clear()
-# Profile.@profile sample_rate=0.001 step!(integrator.integrators[:biochemistry])
-# Profile.print()
-
-# Allocs.clear()
-# Allocs.@profile sample_rate=0.001 step!(integrator.integrators[:biochemistry])
-# Allocs.print()
-# PProf.Allocs.pprof(webport=8080)
-# sleep(300)
-
-@btime step!(integrator)
-@btime step!(integrator.integrators[:biochemistry])
-
-# @btime evolve!(integrator, 100)
-
-# f!(du,u,p,t) = begin
-#     du .= 1
-# end
-
-# x = zeros(N)
-
-# problem = ODEProblem(f!, x, (0.0, 1.0))
-# integrator2 = init(
-#     problem,
-#     Euler(),
-#     dt=0.1,
-#     save_everystep=false,
-# )
-
-# @btime evolve!(integrator2, 100)
+            problem = CBProblem(mesh, obj, (0.0, 1.0))
+            integrator = init(problem, dt=0.1)
+            @btime step!(integrator)

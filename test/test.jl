@@ -7,99 +7,103 @@ import StaticArrays: SizedVector
 using Profile
 using Profile.Allocs
 using PProf
-import SparseConnectivityTracer, ADTypes
-using CairoMakie  # Use CairoMakie instead of Plots
-using Random
 
-    props = (
-            a = Parameter(Float64, description="param a", dimensions=:M, defaultValue=1.0),
-            b = Parameter(Int, description="param b", dimensions=:count, defaultValue=0),
-        )
+            # 3D
+            box = [0.0 1.0; 0.0 1.0; 0.0 1.0]
+            cellSize = [0.1, 0.1, 0.1]
+            mesh = UnstructuredMesh(3; n  = Node((nnCL=Int,nnFull=Int)))
+            @addRule model=mesh scope=integrator function get_neighbors(uNew, u, p, t)
+                x1 = y1 = z1 = 0.0
+                x2 = y2 = z2 = 0.0
+                for i in iterateOver(u.n)
+                    u.n.nnFull[i] = 0
+                    u.n.nnCL[i] = 0
+                    x1 = u.n.x[i]
+                    y1 = u.n.y[i]
+                    z1 = u.n.z[i]
+                    # Full neighbors
+                    for j in iterateOver(u.n)
+                        i == j ? continue : nothing
+                        x2 = u.n.x[j]
+                        y2 = u.n.y[j]
+                        z2 = u.n.z[j]
+                        dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
+                        if dist <= 0.1
+                            uNew.n.nnFull[i] += 1
+                        end
+                    end
+                    # # Cell-linked neighbors
+                    # for j in iterateOver(u.n)
+                    #     i == j ? continue : nothing
+                    #     x2 = u.n.x[j]
+                    #     y2 = u.n.y[j]
+                    #     z2 = u.n.z[j]
+                    #     dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
+                    #     # println("Index: ", (i,j), (x1,y1,z1), (x2,y2,z2), dist)
+                    #     # println("i: $i, j: $j, dist: $dist")
+                    #     if dist <= 0.1
+                    #         uNew.n.nnCL[i] += 1
+                    #     end
+                    # end
+                end
+                CellBasedModels.update!(uNew)
+            end
+            obj = UnstructuredMeshObject(mesh, n = 10000, neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
 
-show(typeof(UnstructuredMesh(2; n=Node(props))))
+            obj.n.x .= rand(10000)
+            obj.n.y .= rand(10000)
+            obj.n.z .= rand(10000)
 
-# Test cell-linked neighbor algorithm with visualization
-println("\n=== Cell-Linked Neighbor Algorithm Test ===")
+            problem = CBProblem(mesh, obj, (0.0, 1.0))
+            integrator = init(problem, dt=0.1)
+            @btime step!(integrator)
 
-# Create a 2D mesh with random particles
-dims = 2
-N = 100  # Number of particles
-box_size = 10.0
-cell_size = (5., 1.5)  # Cell size for neighbor search
-cutoff = 2.0     # Neighbor search radius
+            # 3D
+            box = [0.0 1.0; 0.0 1.0; 0.0 1.0]
+            cellSize = [0.1, 0.1, 0.1]
+            mesh = UnstructuredMesh(3; n  = Node((nnCL=Int,nnFull=Int)))
+            @addRule model=mesh scope=integrator function get_neighbors3D(uNew, u, p, t)
+                x1 = y1 = z1 = 0.0
+                x2 = y2 = z2 = 0.0
+                for i in iterateOver(u.n)
+                    u.n.nnFull[i] = 0
+                    u.n.nnCL[i] = 0
+                    x1 = u.n.x[i]
+                    y1 = u.n.y[i]
+                    z1 = u.n.z[i]
+                    # # Full neighbors
+                    # for j in iterateOver(u.n)
+                    #     i == j ? continue : nothing
+                    #     x2 = u.n.x[j]
+                    #     y2 = u.n.y[j]
+                    #     z2 = u.n.z[j]
+                    #     dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
+                    #     if dist <= 0.1
+                    #         uNew.n.nnFull[i] += 1
+                    #     end
+                    # end
+                    # Cell-linked neighbors
+                    for j in iterateOverNeighbors(u, :n, x1, y1, z1)
+                        i == j ? continue : nothing
+                        x2 = u.n.x[j]
+                        y2 = u.n.y[j]
+                        z2 = u.n.z[j]
+                        dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
+                        # println("Index: ", (i,j), (x1,y1,z1), (x2,y2,z2), dist)
+                        # println("i: $i, j: $j, dist: $dist")
+                        if dist <= 0.1
+                            uNew.n.nnCL[i] += 1
+                        end
+                    end
+                end
+                CellBasedModels.update!(uNew)
+            end
+            obj = UnstructuredMeshObject(mesh, n = 10000, neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
 
-# Create mesh and object
-mesh = UnstructuredMesh(dims; n=Node(props))
-obj = UnstructuredMeshObject(mesh, n=(N, N))
+            obj.n.x .= rand(10000)
+            obj.n.y .= rand(10000)
+            obj.n.z .= rand(10000)
 
-# Initialize random positions
-Random.seed!(42)  # For reproducible results
-obj.n.x[1:N] .= rand(N) * box_size
-obj.n.y[1:N] .= rand(N) * box_size
-
-# Set up cell-linked neighbors
-box = [0.0 box_size; 0.0 box_size]
-neighbors = NeighborsCellLinked(;box=box, cellSize=cell_size)
-
-# Create full object with neighbors
-obj_with_neighbors = UnstructuredMeshObject(
-    mesh, 
-    n=(N, N), 
-    neighbors=neighbors
-)
-
-# Copy position data
-obj_with_neighbors.n.x[1:N] .= obj.n.x[1:N]
-obj_with_neighbors.n.y[1:N] .= obj.n.y[1:N]
-
-# Update cell-linked structure
-CellBasedModels.update!(obj_with_neighbors)
-
-x_coords = obj_with_neighbors.n.x[1:N]
-y_coords = obj_with_neighbors.n.y[1:N]
-    
-# Create the figure and axis
-fig = Figure(size = (800, 800))
-ax = Axis(fig[1, 1], 
-          title = "Cell-Linked Neighbor Algorithm Demo",
-          xlabel = "X Position", 
-          ylabel = "Y Position",
-          aspect = AxisAspect(1))
-    
-# Draw grid cells
-grid_x, grid_y = obj_with_neighbors._neighbors.grid
-for i in 0:grid_x
-    lines!(ax, [i * cell_size[1], i * cell_size[1]], [0, box_size], 
-           color = :lightgray, alpha = 0.5, linewidth = 1)
-end
-for j in 0:grid_y
-    lines!(ax, [0, box_size], [j * cell_size[2], j * cell_size[2]], 
-           color = :lightgray, alpha = 0.5, linewidth = 1)
-end
-    
-# Plot all particles
-scatter!(ax, x_coords, y_coords, 
-         color = :lightblue, 
-         markersize = 8, 
-         alpha = 0.7,
-         label = "All Particles")
-
- # Highlight test particle
-test_particle = 1
-
-# Highlight neighbors
-neighbor_indices = iterateNeighbors(obj_with_neighbors, :n, x_coords[test_particle], y_coords[test_particle])
-neighbor_x = [x_coords[i] for i in neighbor_indices]
-neighbor_y = [y_coords[i] for i in neighbor_indices]
-scatter!(ax, neighbor_x, neighbor_y, 
-         color = :green, 
-         markersize = 10, 
-         label = "Neighbors")
-
-scatter!(ax, [x_coords[test_particle]], [y_coords[test_particle]], 
-    color = :red, 
-    markersize = 12, 
-    label = "Query Particle $(test_particle)")
-
-
-save("cell_linked_neighbors_demo.png", fig)
+            problem = CBProblem(mesh, obj, (0.0, 1.0))
+            integrator = init(problem, dt=0.1)
+            @btime step!(integrator)
