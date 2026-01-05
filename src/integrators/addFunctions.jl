@@ -41,18 +41,21 @@ function analyze_rule_code(kwargs, fdefs; type)
     for f in fdefs
         fdef = f.fdef
 
+        # Expand macros in the function body
+        fdef_expanded = macroexpand(Main, fdef)
+
         # tracked: first arg (du), second (u) is protected
         tracked_syms   = f.args[1:2]
         du_sym         = tracked_syms[1]
         u_sym          = tracked_syms[2]
         protected_syms = [u_sym]
 
-        @capture(fdef, function fname_(args__); body__ end) ||
+        @capture(fdef_expanded, function fname_(args__); body__ end) ||
             error("Expected a function definition expression")
 
         aliases = Dict{Symbol, Union{Vector{Symbol}, Symbol}}()
 
-        postwalk(fdef) do ex
+        postwalk(fdef_expanded) do ex
             # Maintain alias map: x = du.a.a  (adds),  x = something_else (removes)
             if ex isa Expr && ex.head == :(=)
 

@@ -1,5 +1,5 @@
 import DifferentialEquations: ODEProblem, SDEProblem, DEProblem
-import DifferentialEquations
+import DifferentialEquations: init, step!
 
 struct CBProblem{P}
 
@@ -12,7 +12,7 @@ struct CBProblem{P}
 
 end
 
-function CBProblem(mesh::CellBasedModels.AbstractMesh, meshObject0::CellBasedModels.AbstractMeshObject, tspan::Tuple{T,T}, p::Tuple=tuple()) where T<:Real
+function CBProblem(mesh::CellBasedModels.AbstractMesh, meshObject0::CellBasedModels.AbstractMeshObject, tspan::Tuple{T,T}=(0.,1.), p::Tuple=tuple()) where T<:Real
 
     u0 = meshObject0
     u = deepcopy(u0)
@@ -40,12 +40,13 @@ function CBProblem(mesh::CellBasedModels.AbstractMesh, meshObject0::CellBasedMod
 
 end
 
-struct CBIntegrator{M, I}
+mutable struct CBIntegrator{M, I}
 
     u::M
     integrators::I
     dt::Real
-    
+    t::Real
+
 end
 
 function DifferentialEquations.init(problem::CBProblem; dt::Real, kwargs...)
@@ -95,7 +96,7 @@ function DifferentialEquations.init(problem::CBProblem; dt::Real, kwargs...)
 
     integrators = (;integratorsDict...)
 
-    integrator = CBIntegrator{typeof(problem.u), typeof(integrators)}(problem.u, integrators, dt)
+    integrator = CBIntegrator{typeof(problem.u), typeof(integrators)}(problem.u, integrators, dt, problem.tspan[1])
 
     CellBasedModels.update!(integrator.u)
 
@@ -146,6 +147,9 @@ function DifferentialEquations.step!(integrator::CBIntegrator)
     for (scope, deintegrator) in pairs(integrator.integrators)
         CellBasedModels.copyfrom!(deintegrator.u, integrator.u)
     end
+
+    # Increment time
+    integrator.t += integrator.dt
 
     return nothing
 

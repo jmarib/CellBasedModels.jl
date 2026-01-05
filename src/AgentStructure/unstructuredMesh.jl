@@ -99,8 +99,8 @@ function _posMerge(properties, defaultParameters)
 end
 
 function UnstructuredMesh(
-    dims::Int,
-    specialization::DataType=Nothing;
+    dims::Int;
+    specialization::DataType=Nothing,
     kwargs...
 )
 

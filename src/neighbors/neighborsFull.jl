@@ -69,7 +69,6 @@ function update!(mesh::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P, D
     # Compaction
     for (name, prop) in pairs(mesh._p)
         N = lengthProperties(prop)
-        println(typeof.((mesh._neighbors.permTable[name], prop._FlagsSurvived, N)))
         NNew = fillPermTable!(mesh._neighbors.permTable[name], prop._FlagsSurvived, N)
         compactUnstructuredMeshField!(mesh._p[name], mesh._neighbors.permTable[name], mesh._neighbors.auxBuffers[name], NNew)
     end

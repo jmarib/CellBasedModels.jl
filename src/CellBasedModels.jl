@@ -59,7 +59,16 @@ module CellBasedModels
     export iterateOver
     include("./AgentStructure/unstructuredMesh.jl")
     export iterateOverNeighbors, getNeighbors
-    
+
+    #Agent Specializations
+    export createObject
+    export AgentGlobal
+    include("./AgentSpecializations/agentGlobal.jl")
+    # export AgentPoint, AgentPointObject, addAgent!, iterateAgents, iterateOverNeighbors
+    # include("./AgentSpecializations/agentPoint.jl")
+    # export AgentPolymer, AgentPolymerObject, addAgent!, iterateAgents, iterateOverNeighbors
+    # include("./AgentSpecializations/agentPolymer.jl")
+
     include("./neighbors/common.jl")
     export NeighborsFull
     include("./neighbors/neighborsFull.jl")
@@ -85,7 +94,7 @@ module CellBasedModels
     include("./integrators/addFunctions.jl")
     export RuleProblem, Rule
     include("./integrators/ruleProblem.jl")
-    export CBProblem, CBIntegrator, init
+    export CBProblem, CBIntegrator, init, step!
     include("./integrators/cellBasedProblem.jl")
 
     #Neighbors
