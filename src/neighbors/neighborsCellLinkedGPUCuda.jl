@@ -1,6 +1,5 @@
 import CellBasedModels: assignCell!, countInCell!, fillPermTable!, platform
 import CellBasedModels: positionToLinear1D, positionToLinear2D, positionToLinear3D
-import CellBasedModels: GPUCuda, GPUCuDevice
 
 function initNeighborsGPU(
         dims, 

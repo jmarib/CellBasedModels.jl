@@ -31,7 +31,7 @@ function chain_with_index(lhs)
     return go(lhs)
 end
 
-function analyze_rule_code(kwargs, fdefs; type)
+function extract_assigns(fdefs)
     assigns = Tuple[]
 
     # Heads we treat differently
@@ -167,6 +167,13 @@ function analyze_rule_code(kwargs, fdefs; type)
 
     unique_assigns = unique(assigns)
 
+    return unique_assigns
+end
+
+function analyze_rule_code(kwargs, fdefs; type)
+
+    unique_assigns = extract_assigns(fdefs)
+
     # build emitted code (unchanged structure)
     fs = [f.fname for f in fdefs]
     assigns_code = :(CellBasedModels.addFunction!($(kwargs.mesh_name),
@@ -204,13 +211,10 @@ function extract_parameters(n, ex)
     end
 
     mesh_name = nothing
-    scope_name = nothing
     for arg in ex[1:end - n]
         @capture(arg, kwarg_=value_)
         if kwarg == :model
-           mesh_name = value
-        elseif kwarg == :scope
-           scope_name = value
+            mesh_name = value
         else
             error("Unknown keyword argument '$kwarg'")
         end
@@ -218,9 +222,9 @@ function extract_parameters(n, ex)
 
     if mesh_name === nothing
         error("Expected 'model' keyword argument.")
-    elseif scope_name === nothing
-        error("Expected 'scope' keyword argument.")
     end
+
+    scope_name = functions[1].fname
 
     return (mesh_name=mesh_name, scope_name=scope_name), functions
 
@@ -246,6 +250,70 @@ macro addSDE(ex...)
 
     kwargs, functions = extract_parameters(2, ex)
     code = analyze_rule_code(kwargs, functions; type=:SDE)
+
+    return esc(code)
+end
+
+function extract_parameters_kernel_launch(ex)
+
+    functions = []
+    fdef = ex[end]
+    @capture(fdef, function fname_(args__); body__ end) ||
+        error("Last argument of @kernel_launch macro should be followed by a function definition of the form `function f!(uNew, u, p, t) ... end`. Found: $fdef")
+
+        arg_syms = [a isa Expr && a.head == :(::) ? a.args[1] : a for a in args]
+        nargs = length(arg_syms)
+        nargs == 4 || error("Function must have four arguments. e.g (uNew, u, p, t) or (du, u, p, t).")
+
+    push!(functions, (fname=fname, args=arg_syms, fdef=fdef, body=body))
+
+    cpu_threads = Threads.nthreads()
+    gpu_threads = 256
+    for arg in ex[1:end - 1]
+        @capture(arg, kwarg_=value_)
+        if kwarg == :cpu_threads
+            if value > cpu_threads
+                @warn("Requested number of CPU threads ($value) exceeds available threads ($cpu_threads). Using maximum available threads.")
+            end
+            cpu_threads = min(value, cpu_threads)
+        elseif kwarg == :gpu_threads
+            gpu_threads = value
+        else
+            error("Unknown keyword argument '$kwarg'")
+        end
+    end
+
+    return (cpu_threads=cpu_threads, gpu_threads=gpu_threads), functions
+
+end
+
+macro kernel_launch(ex...)
+
+    kwargs, functions = extract_parameters_kernel_launch(ex)
+    unique_assigns = extract_assigns(functions)
+
+    fname = functions[1].fname
+    fargs = functions[1].args
+    fbody = functions[1].body
+
+    ndrange_exprs = [length(i) == 2 ? :(CellBasedModels.lengthProperties($(fargs[1]).$(i[1]))) : :(CellBasedModels.lengthProperties($(fargs[1]).$(i[1]).$(i[2]))) for i in unique_assigns]
+    ndrange_calc = isempty(ndrange_exprs) ? :(1) : :(max($(ndrange_exprs...)))
+
+    code = quote
+        CellBasedModels.@kernel function $fname($(fargs...))
+            $(fbody...)
+        end
+
+        backend = KernelAbstractions.get_backend($(fargs[1]))
+        threads = backend isa CellBasedModels.CPU ? $(kwargs.cpu_threads) : $(kwargs.gpu_threads)
+
+        ndrange_val = $ndrange_calc
+
+        $fname(backend, threads)($(fargs...), ndrange=(ndrange_val,))
+        CellBasedModels.synchronize(backend)
+    end
+
+    # println(code)
 
     return esc(code)
 end

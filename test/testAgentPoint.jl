@@ -1,88 +1,52 @@
-using BenchmarkTools
-using CUDA
-using DifferentialEquations
-using Adapt
-import StaticArrays: SizedVector
-import CellBasedModels: CommunityPointMeta
+@testset verbose=verbose "specializations - AgentPoint" begin
 
-@testset verbose = true "ABM - Point" begin
+    #Define the model
+    model = AgentPoint(
+        (
+            a = AbstractFloat, 
+            a2 = AbstractFloat,
+            b = Integer
+        ),
+    )
 
-    @testset "AgentPoint" begin
-
-        for dims in 0:3
-            agent = AgentPoint(dims)
-            @test agent isa AgentPoint
-            @test CellBasedModels.spatialDims(agent) === dims
-            if dims >= 1
-                @test haskey(agent.n, :x)
-            else
-                @test !haskey(agent.n, :x)
-            end
-            if dims >= 2
-                @test haskey(agent.n, :y)
-            else
-                @test !haskey(agent.n, :y)
-            end
-            if dims >= 3
-                @test haskey(agent.n, :z)
-            else
-                @test !haskey(agent.n, :z)
-            end
-        end
-
-        agent = AgentPoint(
-            2;
-            properties = (
-                mass = Parameter(AbstractFloat, defaultValue=1.0, description="Mass of the agent"),
-                velocity = AbstractFloat,
-            )
-        )
-        @test haskey(agent.n, :mass)
-        @test haskey(agent.n, :velocity)
-
+    #v1
+    @addODE model=model scope=globalEvolution function globalEvolution!(du, u, p, t)
+        du.g.a[1] = -0.1 * u.g.a[1]
     end
 
-    @testset "AgentPointObject" begin
+    #v2
+    @addODE model=model scope=globalEvolution2 function globalEvolution2!(du, u, p, t)
+        @. du.g.a2 = -0.1 * u.g.a2
+    end
 
-        agent = AgentPoint(3)
-
-        @addRule model=agent scope=biochemistry function f!(uNew, u, p, t)
-
-            for i in iterateAgents(u)
-                addAgent!(uNew, 
-                    (
-                        x = 0.0,
-                        y = 0.0,
-                        z = 0.0,
-                    )
-                )
-            end
-
+    @addRule model=model scope=globalReset function globalReset!(uNew, u, p, t)
+        uNew.g.b[1] += 2
+        if uNew.g.b[1] > 10
+            uNew.g.b[1] = 0
         end
+    end
 
-        agentObject = AgentPointObject(
-            agent;
-            N = 10,
-            NCache = 20,
-        )
-        @test agentObject isa AgentPointObject
+    println(model)
 
-        problem = CBProblem(
-            agent,
-            agentObject,
-            (0.0, 1.0),
-        )
+    #Initialize the object
+    obj = createObject(model)
+    obj.g.a .= 1.0
+    obj.g.a2 .= 1.0
+    obj.g.b .= 0
 
-        integrator = init(
-            problem,
-            dt=0.1,
-            biochemistry=Euler()
-        )
+    #Define the problem
+    problem = CBProblem(
+        model,
+        obj
+    )
 
-        for i in 1:5
-            step!(integrator)
-        end
+    integrator = init(problem, dt=0.1)
 
+    for i in 1:100
+        step!(integrator)
+        @test integrator.u.g.a[1] ≈ exp(-0.1 * integrator.t)
+        @test integrator.u.g.a2[1] ≈ exp(-0.1 * integrator.t)
+        @test integrator.u.g.b[1] ≤ 10
     end
 
 end

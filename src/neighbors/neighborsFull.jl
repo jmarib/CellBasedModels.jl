@@ -64,6 +64,10 @@ function initNeighbors(
 
 end
 
+function update!(mesh::UnstructuredMeshObject{P, 0, S, DT, NN, PAR}) where {P, S, DT, NN<:NeighborsFull, PAR}
+    return nothing
+end
+
 function update!(mesh::UnstructuredMeshObject{P, D, S, DT, NN, PAR}) where {P, D, S, DT, NN<:NeighborsFull, PAR}
 
     # Compaction

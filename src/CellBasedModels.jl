@@ -3,6 +3,8 @@ module CellBasedModels
     using Adapt
     using StaticArrays
     using Printf
+    export CPU, GPU
+    using KernelAbstractions
 
     hasCuda() = false
 
@@ -43,7 +45,7 @@ module CellBasedModels
 
     #Platforms
     # export CPU, GPU
-    export toCPU, toGPU
+    export toDevice
     include("./platforms.jl")
 
     #Abstraact types
@@ -58,6 +60,7 @@ module CellBasedModels
     export UnstructuredMesh, UnstructuredMeshField, UnstructuredMeshObject
     export iterateOver
     include("./AgentStructure/unstructuredMesh.jl")
+    include("./AgentStructure/unstructuredMeshGPU.jl")
     export iterateOverNeighbors, getNeighbors
 
     #Agent Specializations
@@ -70,6 +73,7 @@ module CellBasedModels
     # include("./AgentSpecializations/agentPolymer.jl")
 
     include("./neighbors/common.jl")
+    include("../src/neighbors/commonGPU.jl")
     export NeighborsFull
     include("./neighbors/neighborsFull.jl")
     export NeighborsCellLinked
@@ -91,6 +95,7 @@ module CellBasedModels
     # include("./AgentStructure/functionDE.jl")
 
     export @addRule, @addODE, @addSDE
+    export @kernel_launch
     include("./integrators/addFunctions.jl")
     export RuleProblem, Rule
     include("./integrators/ruleProblem.jl")

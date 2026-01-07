@@ -18,52 +18,52 @@ using KernelAbstractions
     all_scopes = (Node, Edge, Face, Volume, Agent)
     all_scopes_index = (:n, :e, :f, :v, :a)
 
-    # #######################################################################
-    # # TEST 1: UnstructuredMesh
-    # #######################################################################
-    # @testset "UnstructuredMesh - full coverage" begin
-    #     for dims in 0:3
-    #         for scope in all_scopes
-    #             mesh = nothing
-    #             if scope === Node
-    #                 mesh = UnstructuredMesh(dims; n  = Node(props))
-    #             elseif scope === Edge
-    #                 mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
-    #             elseif scope === Face
-    #                 mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
-    #             elseif scope === Volume
-    #                 mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
-    #             elseif scope === Agent
-    #                 mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
-    #             end
-    #             @test mesh isa UnstructuredMesh
-    #             @test CellBasedModels.spatialDims(mesh) == dims
-    #             @test CellBasedModels.specialization(mesh) === Nothing
-    #         end
-    #     end
+    #######################################################################
+    # TEST 1: UnstructuredMesh
+    #######################################################################
+    @testset "UnstructuredMesh - full coverage" begin
+        for dims in 0:3
+            for scope in all_scopes
+                mesh = nothing
+                if scope === Node
+                    mesh = UnstructuredMesh(dims; n  = Node(props))
+                elseif scope === Edge
+                    mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                elseif scope === Face
+                    mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                elseif scope === Volume
+                    mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                elseif scope === Agent
+                    mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                end
+                @test mesh isa UnstructuredMesh
+                @test CellBasedModels.spatialDims(mesh) == dims
+                @test CellBasedModels.specialization(mesh) === Nothing
+            end
+        end
 
-    #     # Invalid dimension
-    #     @test_throws ErrorException UnstructuredMesh(-1)
-    #     @test_throws ErrorException UnstructuredMesh(4)
+        # Invalid dimension
+        @test_throws ErrorException UnstructuredMesh(-1)
+        @test_throws ErrorException UnstructuredMesh(4)
 
-    #     # Duplicate protected parameter name (e.g., x)
-    #     bad_props = (x = Parameter(Float64, description="duplicate", dimensions=:L, defaultValue=0.0),)
-    #     @test_throws ErrorException UnstructuredMesh(1; n=Node(bad_props))
+        # Duplicate protected parameter name (e.g., x)
+        bad_props = (x = Parameter(Float64, description="duplicate", dimensions=:L, defaultValue=0.0),)
+        @test_throws ErrorException UnstructuredMesh(1; n=Node(bad_props))
 
-    #     # Show output test
-    #     io = IOBuffer()
-    #     show(io, UnstructuredMesh(2; n=Node(props)))
-    #     output = String(take!(io))
-    #     # show(UnstructuredMesh(2; n=Node(props)))
-    #     @test occursin("UnstructuredMesh with dimensions 2", output)
+        # Show output test
+        io = IOBuffer()
+        show(io, UnstructuredMesh(2; n=Node(props)))
+        output = String(take!(io))
+        # show(UnstructuredMesh(2; n=Node(props)))
+        @test occursin("UnstructuredMesh with dimensions 2", output)
 
-    #     # Show output test
-    #     io = IOBuffer()
-    #     show(io, typeof(UnstructuredMesh(2; n=Node(props))))
-    #     output = String(take!(io))
-    #     # show(typeof(UnstructuredMesh(2; n=Node(props))))
-    #     @test occursin("UnstructuredMesh{dims=2", output)
-    # end
+        # Show output test
+        io = IOBuffer()
+        show(io, typeof(UnstructuredMesh(2; n=Node(props))))
+        output = String(take!(io))
+        # show(typeof(UnstructuredMesh(2; n=Node(props))))
+        @test occursin("UnstructuredMesh{dims=2", output)
+    end
 
     #######################################################################
     # TEST 2: UnstructuredMeshField
@@ -123,12 +123,12 @@ using KernelAbstractions
             field.a .= 7.0
             field.b .= 2
 
-            field_gpu = toGPU(field)
+            field_gpu = toDevice(field, CUDA.CUDABackend)
 
             @test typeof(field_gpu._id) <: CUDA.CuArray
             @test typeof(field_gpu.a) <: CUDA.CuArray
 
-            field_cpu = toCPU(field_gpu)
+            field_cpu = toDevice(field_gpu, CPU)
 
             @test typeof(field_cpu) == typeof(field)
         end
@@ -143,8 +143,8 @@ using KernelAbstractions
         @test field2.a == fill(7.0, 3)
         @test field2.b == fill(0, 3)
         if CUDA.has_cuda()
-            field_gpu = toGPU(field)
-            field2_gpu = toGPU(field2)
+            field_gpu = toDevice(field, CUDA.CUDABackend)
+            field2_gpu = toDevice(field2, CUDA.CUDABackend)
             copyto!(field2_gpu, field_gpu)
             @test Array(field2_gpu.a) == fill(7.0, 3)
             @test Array(field2_gpu.b) == fill(0, 3)
@@ -161,8 +161,8 @@ using KernelAbstractions
         @test field2.a == fill(3.7, 3)
         @test field2.b == fill(0, 3)
         if CUDA.has_cuda()
-            field_gpu = toGPU(field)
-            field2_gpu = toGPU(field2)
+            field_gpu = toDevice(field, CUDA.CUDABackend)
+            field2_gpu = toDevice(field2, CUDA.CUDABackend)
             @. field2_gpu = field_gpu * 0.1 + 3.0
             @test Array(field2_gpu.a) == fill(3.7, 3)
             @test Array(field2_gpu.b) == fill(0, 3)
@@ -179,8 +179,8 @@ using KernelAbstractions
         @test field2.a == fill(3.7, 3)
         @test field2.b == fill(0, 3)
         if CUDA.has_cuda()
-            field_gpu = toGPU(field)
-            field2_gpu = toGPU(field2)
+            field_gpu = toDevice(field, CUDA.CUDABackend)
+            field2_gpu = toDevice(field2, CUDA.CUDABackend)
             DifferentialEquations.DiffEqBase.@.. field2_gpu = field_gpu * 0.1 + 3.0
             @test Array(field2_gpu.a) == fill(3.7, 3)
             @test Array(field2_gpu.b) == fill(0, 3)
@@ -196,7 +196,7 @@ using KernelAbstractions
 
             field = UnstructuredMeshField(meshProperty; N=3, NCache=5)
             field._pReference .= [true, false]
-            field_gpu = toGPU(field)
+            field_gpu = toDevice(field, CUDA.CUDABackend)
 
             @test_nowarn CUDA.@cuda test_kernel_field!(field_gpu)
 
@@ -204,680 +204,679 @@ using KernelAbstractions
 
     end
 
-    # #######################################################################
-    # # TEST 3: UnstructuredMeshObject
-    # #######################################################################
-    # @testset "UnstructuredMeshObject - construction" begin
-    #     for dims in 0:3
-    #         for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-    #             mesh = nothing
-    #             if scope === Node
-    #                 mesh = UnstructuredMesh(dims; n  = Node(props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4))
-    #                 @test obj isa UnstructuredMeshObject
-    #                 @test obj.n isa UnstructuredMeshField
-    #             elseif scope === Edge
-    #                 mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
-    #                 @test obj isa UnstructuredMeshObject
-    #                 @test obj.n isa UnstructuredMeshField
-    #                 @test obj.e isa UnstructuredMeshField
-    #             elseif scope === Face
-    #                 mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
-    #                 @test obj isa UnstructuredMeshObject
-    #                 @test obj.n isa UnstructuredMeshField
-    #                 @test obj.f isa UnstructuredMeshField
-    #             elseif scope === Volume
-    #                 mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
-    #                 @test obj isa UnstructuredMeshObject
-    #                 @test obj.n isa UnstructuredMeshField
-    #                 @test obj.v isa UnstructuredMeshField
-    #             elseif scope === Agent
-    #                 mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
-    #                 @test obj isa UnstructuredMeshObject
-    #                 @test obj.n isa UnstructuredMeshField
-    #                 @test obj.a isa UnstructuredMeshField
-    #             end
+    #######################################################################
+    # TEST 3: UnstructuredMeshObject
+    #######################################################################
+    @testset "UnstructuredMeshObject - construction" begin
+        for dims in 0:3
+            for (scope, scope_index) in zip(all_scopes, all_scopes_index)
+                mesh = nothing
+                if scope === Node
+                    mesh = UnstructuredMesh(dims; n  = Node(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4))
+                    @test obj isa UnstructuredMeshObject
+                    @test obj.n isa UnstructuredMeshField
+                elseif scope === Edge
+                    mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    @test obj isa UnstructuredMeshObject
+                    @test obj.n isa UnstructuredMeshField
+                    @test obj.e isa UnstructuredMeshField
+                elseif scope === Face
+                    mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    @test obj isa UnstructuredMeshObject
+                    @test obj.n isa UnstructuredMeshField
+                    @test obj.f isa UnstructuredMeshField
+                elseif scope === Volume
+                    mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    @test obj isa UnstructuredMeshObject
+                    @test obj.n isa UnstructuredMeshField
+                    @test obj.v isa UnstructuredMeshField
+                elseif scope === Agent
+                    mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    @test obj isa UnstructuredMeshObject
+                    @test obj.n isa UnstructuredMeshField
+                    @test obj.a isa UnstructuredMeshField
+                end
 
-    #             # Invalid cache values
-    #             @test_throws ErrorException UnstructuredMeshObject(mesh, agentN=4, agentNCache=2)
-    #             @test_throws ErrorException UnstructuredMeshObject(mesh, agentN=-1, agentNCache=0)
-    #         end
-    #     end
-    # end
+                # Invalid cache values
+                @test_throws ErrorException UnstructuredMeshObject(mesh, agentN=4, agentNCache=2)
+                @test_throws ErrorException UnstructuredMeshObject(mesh, agentN=-1, agentNCache=0)
+            end
+        end
+    end
 
-    # @testset "UnstructuredMeshObject - copy" begin
-    #     for dims in 0:3
-    #         for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-    #             mesh = nothing
-    #             obj = nothing
-    #             if scope === Node
-    #                 mesh = UnstructuredMesh(dims; n  = Node(props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4))
-    #             elseif scope === Edge
-    #                 mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
-    #             elseif scope === Face
-    #                 mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
-    #             elseif scope === Volume
-    #                 mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
-    #             elseif scope === Agent
-    #                 mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
-    #             end
-    #             if scope == Node
-    #                 obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
-    #             else
-    #                 obj[scope_index]._pReference .= [true, false]
-    #             end
-    #             objCopy = copy(obj)
-    #             obj[scope_index].a .= 7.0
-    #             obj[scope_index].b .= 2
-    #             @test objCopy[scope_index].a == fill(7.0, 2)
-    #             @test objCopy[scope_index]._p.a == [7.0, 7.0, 0.0, 0.0]
-    #             @test objCopy[scope_index].b == zeros(Int, 2)
-    #             @test objCopy[scope_index]._p.b == [0, 0, 0, 0]
-    #         end
-    #     end
-    # end
+    @testset "UnstructuredMeshObject - copy" begin
+        for dims in 0:3
+            for (scope, scope_index) in zip(all_scopes, all_scopes_index)
+                mesh = nothing
+                obj = nothing
+                if scope === Node
+                    mesh = UnstructuredMesh(dims; n  = Node(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4))
+                elseif scope === Edge
+                    mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                elseif scope === Face
+                    mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                elseif scope === Volume
+                    mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                elseif scope === Agent
+                    mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                end
+                if scope == Node
+                    obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
+                else
+                    obj[scope_index]._pReference .= [true, false]
+                end
+                objCopy = copy(obj)
+                obj[scope_index].a .= 7.0
+                obj[scope_index].b .= 2
+                @test objCopy[scope_index].a == fill(7.0, 2)
+                @test objCopy[scope_index]._p.a == [7.0, 7.0, 0.0, 0.0]
+                @test objCopy[scope_index].b == zeros(Int, 2)
+                @test objCopy[scope_index]._p.b == [0, 0, 0, 0]
+            end
+        end
+    end
 
-    # @testset "UnstructuredMeshObject - zero" begin
-    #     for dims in 0:3
-    #         for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-    #             mesh = nothing
-    #             obj = nothing
-    #             if scope === Node
-    #                 mesh = UnstructuredMesh(dims; n  = Node(props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4))
-    #             elseif scope === Edge
-    #                 mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
-    #             elseif scope === Face
-    #                 mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
-    #             elseif scope === Volume
-    #                 mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
-    #             elseif scope === Agent
-    #                 mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
-    #             end
-    #             if scope == Node
-    #                 obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
-    #             else
-    #                 obj[scope_index]._pReference .= [true, false]
-    #             end
-    #             obj[scope_index].a .= 7.0
-    #             obj[scope_index].b .= 2
-    #             objZero = zero(obj)
-    #             @test objZero[scope_index].a == fill(7.0, 2)
-    #             @test objZero[scope_index]._p.a == [7.0, 7.0, 0.0, 0.0]
-    #             @test objZero[scope_index].b == zeros(Int, 2)
-    #             @test objZero[scope_index]._p.b == [0, 0, 0, 0]
-    #         end
-    #     end
-    # end
+    @testset "UnstructuredMeshObject - zero" begin
+        for dims in 0:3
+            for (scope, scope_index) in zip(all_scopes, all_scopes_index)
+                mesh = nothing
+                obj = nothing
+                if scope === Node
+                    mesh = UnstructuredMesh(dims; n  = Node(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4))
+                elseif scope === Edge
+                    mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                elseif scope === Face
+                    mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                elseif scope === Volume
+                    mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                elseif scope === Agent
+                    mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                end
+                if scope == Node
+                    obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
+                else
+                    obj[scope_index]._pReference .= [true, false]
+                end
+                obj[scope_index].a .= 7.0
+                obj[scope_index].b .= 2
+                objZero = zero(obj)
+                @test objZero[scope_index].a == fill(7.0, 2)
+                @test objZero[scope_index]._p.a == [7.0, 7.0, 0.0, 0.0]
+                @test objZero[scope_index].b == zeros(Int, 2)
+                @test objZero[scope_index]._p.b == [0, 0, 0, 0]
+            end
+        end
+    end
 
-    # @testset "UnstructuredMeshObject - toGPU/toCPU" begin
-    #     for dims in 0:3
-    #         for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-    #             # toGPU/toCPU
-    #             if CUDA.has_cuda()
-    #                 mesh = nothing
-    #                 obj = nothing
-    #                 if scope === Node
-    #                     mesh = UnstructuredMesh(dims; n  = Node(props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4))
-    #                 elseif scope === Edge
-    #                     mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
-    #                 elseif scope === Face
-    #                     mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
-    #                 elseif scope === Volume
-    #                     mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
-    #                 elseif scope === Agent
-    #                     mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
-    #                 end
-    #                 if scope == Node
-    #                     obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
-    #                 else
-    #                     obj[scope_index]._pReference .= [true, false]
-    #                 end
-    #                 obj[scope_index].a .= 7.0
-    #                 obj[scope_index].b .= 2
-    #                 obj_gpu = toGPU(obj)
-    #                 @test typeof(obj_gpu[scope_index]._id) <: CUDA.CuArray
-    #                 @test typeof(obj_gpu[scope_index].a) <: CUDA.CuArray
-    #                 obj_cpu = toCPU(obj_gpu)
-    #                 @test typeof(obj_cpu) == typeof(obj)
-    #             end
-    #         end
-    #     end
-    # end
+    @testset "UnstructuredMeshObject - toGPU/toCPU" begin
+        for dims in 0:3
+            for (scope, scope_index) in zip(all_scopes, all_scopes_index)
+                # toGPU/toCPU
+                if CUDA.has_cuda()
+                    mesh = nothing
+                    obj = nothing
+                    if scope === Node
+                        mesh = UnstructuredMesh(dims; n  = Node(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4))
+                    elseif scope === Edge
+                        mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    elseif scope === Face
+                        mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    elseif scope === Volume
+                        mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    elseif scope === Agent
+                        mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    end
+                    if scope == Node
+                        obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
+                    else
+                        obj[scope_index]._pReference .= [true, false]
+                    end
+                    obj[scope_index].a .= 7.0
+                    obj[scope_index].b .= 2
+                    obj_gpu = toDevice(obj, CUDA.CUDABackend)
+                    @test typeof(obj_gpu[scope_index]._id) <: CUDA.CuArray
+                    @test typeof(obj_gpu[scope_index].a) <: CUDA.CuArray
+                    obj_cpu = toDevice(obj_gpu, CPU)
+                    @test typeof(obj_cpu) == typeof(obj)
+                end
+            end
+        end
+    end
 
-    # @testset "UnstructuredMeshObject - copyto!" begin
-    #     for dims in 0:3
-    #         for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-    #                 mesh = nothing
-    #                 obj = nothing
-    #                 if scope === Node
-    #                     mesh = UnstructuredMesh(dims; n  = Node(props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4))
-    #                     obj2 = UnstructuredMeshObject(mesh, n = (2,4))
-    #                 elseif scope === Edge
-    #                     mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
-    #                     obj2 = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
-    #                 elseif scope === Face
-    #                     mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
-    #                     obj2 = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
-    #                 elseif scope === Volume
-    #                     mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
-    #                     obj2 = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
-    #                 elseif scope === Agent
-    #                     mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
-    #                     obj2 = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
-    #                 end
-    #             if scope == Node
-    #                 obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
-    #             else
-    #                 obj[scope_index]._pReference .= [true, false]
-    #             end
-    #             obj[scope_index].a .= 7.0
-    #             obj[scope_index].b .= 2
-    #             if scope == Node
-    #                 obj2[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
-    #             else
-    #                 obj2[scope_index]._pReference .= [true, false]
-    #             end
-    #             copyto!(obj2, obj)
-    #             @test obj2[scope_index].a == fill(0.0, 2)
-    #             @test obj2[scope_index]._p.a == [0.0, 0.0, 0.0, 0.0]
-    #             @test obj2[scope_index].b == fill(2, 2)
-    #             @test obj2[scope_index]._p.b == [2, 2, 0, 0]
-    #             if CUDA.has_cuda()
-    #                 obj_gpu = toGPU(obj)
-    #                 obj2_gpu = toGPU(obj2)
-    #                 copyto!(obj2_gpu, obj_gpu)
-    #                 @test Array(obj2_gpu[scope_index].a) == fill(0.0, 2)
-    #                 @test Array(obj2_gpu[scope_index]._p.a) == [0.0, 0.0, 0.0, 0.0]
-    #                 @test Array(obj2_gpu[scope_index].b) == fill(2, 2)
-    #                 @test Array(obj2_gpu[scope_index]._p.b) == [2, 2, 0, 0]
-    #             end
-    #         end
-    #     end
-    # end
+    @testset "UnstructuredMeshObject - copyto!" begin
+        for dims in 0:3
+            for (scope, scope_index) in zip(all_scopes, all_scopes_index)
+                    mesh = nothing
+                    obj = nothing
+                    if scope === Node
+                        mesh = UnstructuredMesh(dims; n  = Node(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4))
+                        obj2 = UnstructuredMeshObject(mesh, n = (2,4))
+                    elseif scope === Edge
+                        mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                        obj2 = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    elseif scope === Face
+                        mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                        obj2 = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    elseif scope === Volume
+                        mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                        obj2 = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    elseif scope === Agent
+                        mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                        obj2 = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    end
+                if scope == Node
+                    obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
+                else
+                    obj[scope_index]._pReference .= [true, false]
+                end
+                obj[scope_index].a .= 7.0
+                obj[scope_index].b .= 2
+                if scope == Node
+                    obj2[scope_index]._pReference .= [[true, true, true][1:1:dims]..., true, false]
+                else
+                    obj2[scope_index]._pReference .= [true, false]
+                end
+                copyto!(obj2, obj)
+                @test obj2[scope_index].a == fill(0.0, 2)
+                @test obj2[scope_index]._p.a == [0.0, 0.0, 0.0, 0.0]
+                @test obj2[scope_index].b == fill(2, 2)
+                @test obj2[scope_index]._p.b == [2, 2, 0, 0]
+                if CUDA.has_cuda()
+                    obj_gpu = toDevice(obj, CUDA.CUDABackend)
+                    obj2_gpu = toDevice(obj2, CUDA.CUDABackend)
+                    copyto!(obj2_gpu, obj_gpu)
+                    @test Array(obj2_gpu[scope_index].a) == fill(0.0, 2)
+                    @test Array(obj2_gpu[scope_index]._p.a) == [0.0, 0.0, 0.0, 0.0]
+                    @test Array(obj2_gpu[scope_index].b) == fill(2, 2)
+                    @test Array(obj2_gpu[scope_index]._p.b) == [2, 2, 0, 0]
+                end
+            end
+        end
+    end
 
-    # @testset "UnstructuredMeshObject - broadcasting" begin
-    #     for dims in 0:3
-    #         for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-    #             mesh = nothing
-    #             obj = nothing
-    #             if scope === Node
-    #                 mesh = UnstructuredMesh(dims; n  = Node(props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4))
-    #                 obj2 = UnstructuredMeshObject(mesh, n = (2,4))
-    #             elseif scope === Edge
-    #                 mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
-    #                 obj2 = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
-    #             elseif scope === Face
-    #                 mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
-    #                 obj2 = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
-    #             elseif scope === Volume
-    #                 mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
-    #                 obj2 = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
-    #             elseif scope === Agent
-    #                 mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
-    #                 obj2 = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
-    #             end
-    #             if scope == Node
-    #                 obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
-    #             else
-    #                 obj[scope_index]._pReference .= [false, true]
-    #             end
-    #             obj[scope_index].a .= 7.0
-    #             obj[scope_index].b .= 2
-    #             if scope == Node
-    #                 obj2[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
-    #             else
-    #                 obj2[scope_index]._pReference .= [false, true]
-    #             end
-    #             @. obj2 = obj * 0.1 + 3.0
-    #             @test obj2[scope_index].a == fill(3.7, 2)
-    #             @test obj2[scope_index]._p.a == [3.7, 3.7, 0.0, 0.0]
-    #             @test obj2[scope_index].b == fill(0, 2)
-    #             @test obj2[scope_index]._p.b == [0, 0, 0, 0]
-    #             if CUDA.has_cuda()
-    #                 obj_gpu = toGPU(obj)
-    #                 obj2_gpu = toGPU(obj2)
-    #                 obj2_gpu[scope_index].a .= 0.0
-    #                 @. obj2_gpu = obj_gpu * 0.1 + 3.0
-    #                 @test Array(obj2_gpu[scope_index].a) == fill(3.7, 2)
-    #                 @test Array(obj2_gpu[scope_index]._p.a) == [3.7, 3.7, 0.0, 0.0]
-    #                 @test Array(obj2_gpu[scope_index].b) == fill(0, 2)
-    #                 @test Array(obj2_gpu[scope_index]._p.b) == [0, 0, 0, 0]
-    #             end
+    @testset "UnstructuredMeshObject - broadcasting" begin
+        for dims in 0:3
+            for (scope, scope_index) in zip(all_scopes, all_scopes_index)
+                mesh = nothing
+                obj = nothing
+                if scope === Node
+                    mesh = UnstructuredMesh(dims; n  = Node(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4))
+                elseif scope === Edge
+                    mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                elseif scope === Face
+                    mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                elseif scope === Volume
+                    mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                elseif scope === Agent
+                    mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                end
+                if scope == Node
+                    obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
+                else
+                    obj[scope_index]._pReference .= [false, true]
+                end
+                obj[scope_index].a .= 7.0
+                obj[scope_index].b .= 2
+                if scope == Node
+                    obj2[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
+                else
+                    obj2[scope_index]._pReference .= [false, true]
+                end
+                @. obj2 = obj * 0.1 + 3.0
+                @test obj2[scope_index].a == fill(3.7, 2)
+                @test obj2[scope_index]._p.a == [3.7, 3.7, 0.0, 0.0]
+                @test obj2[scope_index].b == fill(0, 2)
+                @test obj2[scope_index]._p.b == [0, 0, 0, 0]
+                if CUDA.has_cuda()
+                    obj_gpu = toDevice(obj, CUDA.CUDABackend)
+                    obj2_gpu = toDevice(obj2, CUDA.CUDABackend)
+                    obj2_gpu[scope_index].a .= 0.0
+                    @. obj2_gpu = obj_gpu * 0.1 + 3.0
+                    @test Array(obj2_gpu[scope_index].a) == fill(3.7, 2)
+                    @test Array(obj2_gpu[scope_index]._p.a) == [3.7, 3.7, 0.0, 0.0]
+                    @test Array(obj2_gpu[scope_index].b) == fill(0, 2)
+                    @test Array(obj2_gpu[scope_index]._p.b) == [0, 0, 0, 0]
+                end
 
-    #             # Broadcast @..
-    #             mesh = nothing
-    #             obj = nothing
-    #             if scope === Node
-    #                 mesh = UnstructuredMesh(dims; n  = Node(props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4))
-    #                 obj2 = UnstructuredMeshObject(mesh, n = (2,4))
-    #             elseif scope === Edge
-    #                 mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
-    #                 obj2 = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
-    #             elseif scope === Face
-    #                 mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
-    #                 obj2 = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
-    #             elseif scope === Volume
-    #                 mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
-    #                 obj2 = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
-    #             elseif scope === Agent
-    #                 mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
-    #                 obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
-    #                 obj2 = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
-    #             end
-    #             if scope == Node
-    #                 obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
-    #             else
-    #                 obj[scope_index]._pReference .= [false, true]
-    #             end
-    #             obj[scope_index].a .= 7.0
-    #             obj[scope_index].b .= 2
-    #             if scope == Node
-    #                 obj2[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
-    #             else
-    #                 obj2[scope_index]._pReference .= [false, true]
-    #             end
-    #             DifferentialEquations.DiffEqBase.@.. obj2 = obj * 0.1 + 3.0
-    #             @test obj2[scope_index].a == fill(3.7, 2)
-    #             @test obj2[scope_index]._p.a == [3.7, 3.7, 0.0, 0.0]
-    #             @test obj2[scope_index].b == fill(0, 2)
-    #             @test obj2[scope_index]._p.b == [0, 0, 0, 0]
-    #             if CUDA.has_cuda()
-    #                 obj_gpu = toGPU(obj)
-    #                 obj2_gpu = toGPU(obj2)
-    #                 obj2_gpu[scope_index].a .= 0.0
-    #                 DifferentialEquations.DiffEqBase.@.. obj2_gpu = obj_gpu * 0.1 + 3.0
-    #                 @test Array(obj2_gpu[scope_index].a) == fill(3.7, 2)
-    #                 @test Array(obj2_gpu[scope_index]._p.a) == [3.7, 3.7, 0.0, 0.0]
-    #                 @test Array(obj2_gpu[scope_index].b) == fill(0, 2)
-    #                 @test Array(obj2_gpu[scope_index]._p.b) == [0, 0, 0, 0]
-    #             end
-    #         end
-    #     end
-    # end
+                # Broadcast @..
+                mesh = nothing
+                obj = nothing
+                if scope === Node
+                    mesh = UnstructuredMesh(dims; n  = Node(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4))
+                elseif scope === Edge
+                    mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                elseif scope === Face
+                    mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                elseif scope === Volume
+                    mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                elseif scope === Agent
+                    mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                    obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    obj2 = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                end
+                if scope == Node
+                    obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
+                else
+                    obj[scope_index]._pReference .= [false, true]
+                end
+                obj[scope_index].a .= 7.0
+                obj[scope_index].b .= 2
+                if scope == Node
+                    obj2[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
+                else
+                    obj2[scope_index]._pReference .= [false, true]
+                end
+                DifferentialEquations.DiffEqBase.@.. obj2 = obj * 0.1 + 3.0
+                @test obj2[scope_index].a == fill(3.7, 2)
+                @test obj2[scope_index]._p.a == [3.7, 3.7, 0.0, 0.0]
+                @test obj2[scope_index].b == fill(0, 2)
+                @test obj2[scope_index]._p.b == [0, 0, 0, 0]
+                if CUDA.has_cuda()
+                    obj_gpu = toDevice(obj, CUDA.CUDABackend)
+                    obj2_gpu = toDevice(obj2, CUDA.CUDABackend)
+                    obj2_gpu[scope_index].a .= 0.0
+                    DifferentialEquations.DiffEqBase.@.. obj2_gpu = obj_gpu * 0.1 + 3.0
+                    @test Array(obj2_gpu[scope_index].a) == fill(3.7, 2)
+                    @test Array(obj2_gpu[scope_index]._p.a) == [3.7, 3.7, 0.0, 0.0]
+                    @test Array(obj2_gpu[scope_index].b) == fill(0, 2)
+                    @test Array(obj2_gpu[scope_index]._p.b) == [0, 0, 0, 0]
+                end
+            end
+        end
+    end
 
-    # @testset "UnstructuredMeshObject - GPU kernels" begin
-    #     for dims in 0:3
-    #         for (scope, scope_index) in zip(all_scopes, all_scopes_index)            
-    #             # Kernel works
-    #             if CUDA.has_cuda()
-    #                 function test_kernel_object!(x)
-    #                     x.n
-    #                     nothing
-    #                 end
+    @testset "UnstructuredMeshObject - GPU kernels" begin
+        for dims in 0:3
+            for (scope, scope_index) in zip(all_scopes, all_scopes_index)            
+                # Kernel works
+                if CUDA.has_cuda()
+                    function test_kernel_object!(x)
+                        x.n
+                        nothing
+                    end
 
-    #                 mesh = nothing
-    #                 obj = nothing
-    #                 if scope === Node
-    #                     mesh = UnstructuredMesh(dims; n  = Node(props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4))
-    #                 elseif scope === Edge
-    #                     mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
-    #                 elseif scope === Face
-    #                     mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
-    #                 elseif scope === Volume
-    #                     mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
-    #                 elseif scope === Agent
-    #                     mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
-    #                 end
-    #                 obj_gpu = toGPU(obj)
+                    mesh = nothing
+                    obj = nothing
+                    if scope === Node
+                        mesh = UnstructuredMesh(dims; n  = Node(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4))
+                    elseif scope === Edge
+                        mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    elseif scope === Face
+                        mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    elseif scope === Volume
+                        mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    elseif scope === Agent
+                        mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    end
+                    obj_gpu = toDevice(obj, CUDA.CUDABackend)
 
-    #                 @test_nowarn CUDA.@cuda test_kernel_object!(obj_gpu)
-    #             end
-    #         end
-    #     end
-    # end
+                    @test_nowarn CUDA.@cuda test_kernel_object!(obj_gpu)
+                end
+            end
+        end
+    end
 
-    # @testset "UnstructuredMeshObject - DifferentialEquations compatibility" begin
-    #     for dims in 0:3
-    #         for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-    #             for integratorAlg in (Euler(), RK4())#, Tsit5())
+    @testset "UnstructuredMeshObject - DifferentialEquations compatibility" begin
+        for dims in 0:3
+            for (scope, scope_index) in zip(all_scopes, all_scopes_index)
+                for integratorAlg in (Euler(), RK4())#, Tsit5())
 
-    #                 # DifferentialEquations.jl compatibility
-    #                 function fODE!(du, u, p, t)
-    #                     @. du[scope_index].a = 1
-    #                     return
-    #                 end
-    #                 mesh = nothing
-    #                 obj = nothing
-    #                 if scope === Node
-    #                     mesh = UnstructuredMesh(dims; n  = Node(props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4))
-    #                 elseif scope === Edge
-    #                     mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
-    #                 elseif scope === Face
-    #                     mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
-    #                 elseif scope === Volume
-    #                     mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
-    #                 elseif scope === Agent
-    #                     mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
-    #                 end
-    #                 if scope == Node
-    #                     obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
-    #                 else
-    #                     obj[scope_index]._pReference .= [false, true]
-    #                 end
-    #                 prob = ODEProblem(fODE!, obj, (0.0, 1.0))
-    #                 integrator = init(prob, integratorAlg, dt=0.1, save_everystep=false)
-    #                 for i in 1:10
-    #                     step!(integrator, 0.1, true)
-    #                 end
-    #                 @test all(integrator.u[scope_index].a .≈ 1.0)
-    #                 if CUDA.has_cuda()
-    #                     mesh = nothing
-    #                     obj = nothing
-    #                     if scope === Node
-    #                         mesh = UnstructuredMesh(dims; n  = Node(props))
-    #                         obj = UnstructuredMeshObject(mesh, n = (2,4))
-    #                     elseif scope === Edge
-    #                         mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
-    #                         obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
-    #                     elseif scope === Face
-    #                         mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
-    #                         obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
-    #                     elseif scope === Volume
-    #                         mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
-    #                         obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
-    #                     elseif scope === Agent
-    #                         mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
-    #                         obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
-    #                     end
-    #                     if scope == Node
-    #                         obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
-    #                     else
-    #                         obj[scope_index]._pReference .= [false, true]
-    #                     end
-    #                     obj_gpu = toGPU(obj)
-    #                     prob = ODEProblem(fODE!, obj_gpu, (0.0, 1.0))
-    #                     integrator = init(prob, integratorAlg, dt=0.1, save_everystep=false)
-    #                     for i in 1:10
-    #                         step!(integrator, 0.1, true)
-    #                     end
-    #                     @test all(Array(integrator.u[scope_index].a) .≈ 1.0)
-    #                 end
-    #             end
-    #         end
-    #     end
-    # end
+                    # DifferentialEquations.jl compatibility
+                    function fODE!(du, u, p, t)
+                        @. du[scope_index].a = 1
+                        return
+                    end
+                    mesh = nothing
+                    obj = nothing
+                    if scope === Node
+                        mesh = UnstructuredMesh(dims; n  = Node(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4))
+                    elseif scope === Edge
+                        mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                    elseif scope === Face
+                        mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                    elseif scope === Volume
+                        mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                    elseif scope === Agent
+                        mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                    end
+                    if scope == Node
+                        obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
+                    else
+                        obj[scope_index]._pReference .= [false, true]
+                    end
+                    prob = ODEProblem(fODE!, obj, (0.0, 1.0))
+                    integrator = init(prob, integratorAlg, dt=0.1, save_everystep=false)
+                    for i in 1:10
+                        step!(integrator, 0.1, true)
+                    end
+                    @test all(integrator.u[scope_index].a .≈ 1.0)
+                    if CUDA.has_cuda()
+                        mesh = nothing
+                        obj = nothing
+                        if scope === Node
+                            mesh = UnstructuredMesh(dims; n  = Node(props))
+                            obj = UnstructuredMeshObject(mesh, n = (2,4))
+                        elseif scope === Edge
+                            mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                            obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4))
+                        elseif scope === Face
+                            mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                            obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4))
+                        elseif scope === Volume
+                            mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                            obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4))
+                        elseif scope === Agent
+                            mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                            obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4))
+                        end
+                        if scope == Node
+                            obj[scope_index]._pReference .= [[true, true, true][1:1:dims]..., false, true]
+                        else
+                            obj[scope_index]._pReference .= [false, true]
+                        end
+                        obj_gpu = toDevice(obj, CUDA.CUDABackend)
+                        prob = ODEProblem(fODE!, obj_gpu, (0.0, 1.0))
+                        integrator = init(prob, integratorAlg, dt=0.1, save_everystep=false)
+                        for i in 1:10
+                            step!(integrator, 0.1, true)
+                        end
+                        @test all(Array(integrator.u[scope_index].a) .≈ 1.0)
+                    end
+                end
+            end
+        end
+    end
 
-    # @testset "UnstructuredMeshObject - neighbors" begin
+    @testset "UnstructuredMeshObject - neighbors" begin
 
-    #     @testset "UnstructuredMeshObject - NeighborsFull" begin
-    #         for dims in 1:3  # Skip dims=0 as neighbor algorithms require spatial coordinates
-    #             for (scope, scope_index) in zip(all_scopes, all_scopes_index)
-    #                 mesh = nothing
-    #                 obj = nothing
-    #                 if scope === Node
-    #                     mesh = UnstructuredMesh(dims; n  = Node(props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), neighbors=NeighborsFull())
-    #                 elseif scope === Edge
-    #                     mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4), neighbors=NeighborsFull())
-    #                 elseif scope === Face
-    #                     mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4), neighbors=NeighborsFull())
-    #                 elseif scope === Volume
-    #                     mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4), neighbors=NeighborsFull())
-    #                 elseif scope === Agent
-    #                     mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
-    #                     obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4), neighbors=NeighborsFull())
-    #                 end
+        @testset "UnstructuredMeshObject - NeighborsFull" begin
+            for dims in 1:3  # Skip dims=0 as neighbor algorithms require spatial coordinates
+                for (scope, scope_index) in zip(all_scopes, all_scopes_index)
+                    mesh = nothing
+                    obj = nothing
+                    if scope === Node
+                        mesh = UnstructuredMesh(dims; n  = Node(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), neighbors=NeighborsFull())
+                    elseif scope === Edge
+                        mesh = UnstructuredMesh(dims; n = Node(), e  = Edge((:n,:n), props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), e = (2,4), neighbors=NeighborsFull())
+                    elseif scope === Face
+                        mesh = UnstructuredMesh(dims; n = Node(), f  = Face(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), f = (2,4), neighbors=NeighborsFull())
+                    elseif scope === Volume
+                        mesh = UnstructuredMesh(dims; n = Node(), v  = Volume(:n, props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), v = (2,4), neighbors=NeighborsFull())
+                    elseif scope === Agent
+                        mesh = UnstructuredMesh(dims; n = Node(), a  = Agent(props))
+                        obj = UnstructuredMeshObject(mesh, n = (2,4), a = (2,4), neighbors=NeighborsFull())
+                    end
 
-    #                 l = []
-    #                 for i in iterateOverNeighbors(obj, scope_index, 1)
-    #                     push!(l, i)
-    #                 end
+                    l = []
+                    for i in iterateOverNeighbors(obj, scope_index, 1)
+                        push!(l, i)
+                    end
 
-    #                 @test length(l) == 2
+                    @test length(l) == 2
                 
-    #             end
-    #         end
-    #     end
+                end
+            end
+        end
 
-    #     @testset "UnstructuredMeshObject - NeighborsCellLinked" begin
-    #         # Cell-linked neighbors only make sense for spatial dimensions >= 1
-    #         # 1D
-    #         box = [0.0 1.0]
-    #         cellSize = [0.1]
-    #         mesh = UnstructuredMesh(1; n  = Node((nnCL=Int,nnFull=Int)))
-    #         @addRule model=mesh scope=integrator function get_neighbors1D(uNew, u, p, t)
-    #             @kernel function get_neighbors1D_kernel!(uNew, u, p, t)
-    #                 x1 = 0.0
-    #                 x2 = 0.0
-    #                 i = @index(Global)
+        @testset "UnstructuredMeshObject - NeighborsCellLinked" begin
+            # Cell-linked neighbors only make sense for spatial dimensions >= 1
+            # 1D
+            box = [0.0 1.0]
+            cellSize = [0.1]
+            mesh = UnstructuredMesh(1; n  = Node((nnCL=Int,nnFull=Int)))
+            @addRule model=mesh function get_neighbors1D(uNew, u, p, t)
+                @kernel function get_neighbors1D_kernel!(uNew, u, p, t)
+                    x1 = 0.0
+                    x2 = 0.0
+                    i = @index(Global)
 
-    #                 if i < length(u.n.x)
-    #                     u.n.nnFull[i] = 0
-    #                     u.n.nnCL[i] = 0
-    #                     x1 = u.n.x[i]
-    #                     # Full neighbors
-    #                     for j in iterateOver(u.n)
-    #                         i == j ? continue : nothing
-    #                         x2 = u.n.x[j]
-    #                         dist = sqrt((x2 - x1)^2)
-    #                         if dist <= 0.1
-    #                             uNew.n.nnFull[i] += 1
-    #                         end
-    #                     end
-    #                     # Cell-linked neighbors
-    #                     for j in iterateOverNeighbors(u, :n, x1)
-    #                         i == j ? continue : nothing
-    #                         x2 = u.n.x[j]
-    #                         dist = sqrt((x2 - x1)^2)
-    #                         if dist <= 0.1
-    #                             uNew.n.nnCL[i] += 1
-    #                         end
-    #                     end
-    #                 end
-    #             end
+                    if i < length(u.n.x)
+                        u.n.nnFull[i] = 0
+                        u.n.nnCL[i] = 0
+                        x1 = u.n.x[i]
+                        # Full neighbors
+                        for j in iterateOver(u.n)
+                            i == j ? continue : nothing
+                            x2 = u.n.x[j]
+                            dist = sqrt((x2 - x1)^2)
+                            if dist <= 0.1
+                                uNew.n.nnFull[i] += 1
+                            end
+                        end
+                        # Cell-linked neighbors
+                        for j in iterateOverNeighbors(u, :n, x1)
+                            i == j ? continue : nothing
+                            x2 = u.n.x[j]
+                            dist = sqrt((x2 - x1)^2)
+                            if dist <= 0.1
+                                uNew.n.nnCL[i] += 1
+                            end
+                        end
+                    end
+                end
 
-    #             dev = get_backend(uNew)
-    #             nthreads = 256
-    #             if dev == CPU()
-    #                 nthreads = Threads.nthreads()
-    #             end
-    #             get_neighbors1D_kernel!(dev, nthreads)(uNew, u, p, t, ndrange=length(u.n.x))
-    #             KernelAbstractions.synchronize(dev)
-    #         end
-    #         obj = UnstructuredMeshObject(mesh, n = 10000, neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
+                dev = get_backend(uNew)
+                nthreads = 256
+                if dev == CPU()
+                    nthreads = Threads.nthreads()
+                end
+                get_neighbors1D_kernel!(dev, nthreads)(uNew, u, p, t, ndrange=length(u.n.x))
+                KernelAbstractions.synchronize(dev)
+            end
+            obj = UnstructuredMeshObject(mesh, n = 10000, neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
 
-    #         obj.n.x .= rand(10000)
+            obj.n.x .= rand(10000)
 
-    #         problem = CBProblem(mesh, obj, (0.0, 1.0))
-    #         integrator = init(problem, dt=0.1)
-    #         step!(integrator)
+            problem = CBProblem(mesh, obj, (0.0, 1.0))
+            integrator = init(problem, dt=0.1)
+            step!(integrator)
 
-    #         @test all(integrator.u.n.nnCL .== integrator.u.n.nnFull)
+            @test all(integrator.u.n.nnCL .== integrator.u.n.nnFull)
 
-    #         if CUDA.has_cuda()
-    #             obj_gpu = toGPU(obj)
-    #             problem_gpu = CBProblem(mesh, obj_gpu, (0.0, 1.0))
-    #             integrator_gpu = init(problem_gpu, dt=0.1)
-    #             step!(integrator_gpu)
-    #             # obj = toCPU(integrator_gpu.u)
+            if CUDA.has_cuda()
+                obj_gpu = toDevice(obj, CUDA.CUDABackend)
+                problem_gpu = CBProblem(mesh, obj_gpu, (0.0, 1.0))
+                integrator_gpu = init(problem_gpu, dt=0.1)
+                step!(integrator_gpu)
 
-    #             @test all(Array(integrator_gpu.u.n.nnCL) .== Array(integrator_gpu.u.n.nnFull))
-    #         end
+                @test all(Array(integrator_gpu.u.n.nnCL) .== Array(integrator_gpu.u.n.nnFull))
+            end
 
-    #         # 2D
-    #         box = [0.0 1.0; 0.0 1.0]
-    #         cellSize = [0.1, 0.1]
-    #         mesh = UnstructuredMesh(2; n  = Node((nnCL=Int,nnFull=Int)))
-    #         @addRule model=mesh scope=integrator function get_neighbors2D(uNew, u, p, t)
-    #             @kernel function get_neighbors2D_kernel!(uNew, u, p, t)
-    #                 x1 = y1 = 0.0
-    #                 x2 = y2 = 0.0
-    #                 i = @index(Global)
+            # 2D
+            box = [0.0 1.0; 0.0 1.0]
+            cellSize = [0.1, 0.1]
+            mesh = UnstructuredMesh(2; n  = Node((nnCL=Int,nnFull=Int)))
+            @addRule model=mesh function get_neighbors2D(uNew, u, p, t)
+                @kernel function get_neighbors2D_kernel!(uNew, u, p, t)
+                    x1 = y1 = 0.0
+                    x2 = y2 = 0.0
+                    i = @index(Global)
 
-    #                 if i < length(u.n.x)
-    #                     u.n.nnFull[i] = 0
-    #                     u.n.nnCL[i] = 0
-    #                     x1 = u.n.x[i]
-    #                     y1 = u.n.y[i]
-    #                     # Full neighbors
-    #                     for j in iterateOver(u.n)
-    #                         i == j ? continue : nothing
-    #                         x2 = u.n.x[j]
-    #                         y2 = u.n.y[j]
-    #                         dist = sqrt((x2 - x1)^2 + (y2 - y1)^2)
-    #                         if dist <= 0.1
-    #                             uNew.n.nnFull[i] += 1
-    #                         end
-    #                     end
-    #                     # Cell-linked neighbors
-    #                     for j in iterateOverNeighbors(u, :n, x1, y1)
-    #                         i == j ? continue : nothing
-    #                         x2 = u.n.x[j]
-    #                         y2 = u.n.y[j]
-    #                         dist = sqrt((x2 - x1)^2 + (y2 - y1)^2)
-    #                         if dist <= 0.1
-    #                             uNew.n.nnCL[i] += 1
-    #                         end
-    #                     end
-    #                 end
-    #             end
+                    if i < length(u.n.x)
+                        u.n.nnFull[i] = 0
+                        u.n.nnCL[i] = 0
+                        x1 = u.n.x[i]
+                        y1 = u.n.y[i]
+                        # Full neighbors
+                        for j in iterateOver(u.n)
+                            i == j ? continue : nothing
+                            x2 = u.n.x[j]
+                            y2 = u.n.y[j]
+                            dist = sqrt((x2 - x1)^2 + (y2 - y1)^2)
+                            if dist <= 0.1
+                                uNew.n.nnFull[i] += 1
+                            end
+                        end
+                        # Cell-linked neighbors
+                        for j in iterateOverNeighbors(u, :n, x1, y1)
+                            i == j ? continue : nothing
+                            x2 = u.n.x[j]
+                            y2 = u.n.y[j]
+                            dist = sqrt((x2 - x1)^2 + (y2 - y1)^2)
+                            if dist <= 0.1
+                                uNew.n.nnCL[i] += 1
+                            end
+                        end
+                    end
+                end
 
-    #             dev = get_backend(uNew)
-    #             nthreads = 256
-    #             if dev == CPU()
-    #                 nthreads = Threads.nthreads()
-    #             end
-    #             get_neighbors2D_kernel!(dev, nthreads)(uNew, u, p, t, ndrange=length(u.n.x))
-    #             KernelAbstractions.synchronize(dev)
-    #         end
-    #         obj = UnstructuredMeshObject(mesh, n = 10000, neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
+                dev = get_backend(uNew)
+                nthreads = 256
+                if dev == CPU()
+                    nthreads = Threads.nthreads()
+                end
+                get_neighbors2D_kernel!(dev, nthreads)(uNew, u, p, t, ndrange=length(u.n.x))
+                KernelAbstractions.synchronize(dev)
+            end
+            obj = UnstructuredMeshObject(mesh, n = 10000, neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
 
-    #         obj.n.x .= rand(10000)
-    #         obj.n.y .= rand(10000)
+            obj.n.x .= rand(10000)
+            obj.n.y .= rand(10000)
 
-    #         problem = CBProblem(mesh, obj, (0.0, 1.0))
-    #         integrator = init(problem, dt=0.1)
-    #         step!(integrator)
+            problem = CBProblem(mesh, obj, (0.0, 1.0))
+            integrator = init(problem, dt=0.1)
+            step!(integrator)
 
-    #         @test all(integrator.u.n.nnCL .== integrator.u.n.nnFull)
+            @test all(integrator.u.n.nnCL .== integrator.u.n.nnFull)
 
-    #         if CUDA.has_cuda()
-    #             obj_gpu = toGPU(obj)
-    #             problem_gpu = CBProblem(mesh, obj_gpu, (0.0, 1.0))
-    #             integrator_gpu = init(problem_gpu, dt=0.1)
-    #             step!(integrator_gpu)
-    #             # obj = toCPU(integrator_gpu.u)
+            if CUDA.has_cuda()
+                obj_gpu = toDevice(obj, CUDA.CUDABackend)
+                problem_gpu = CBProblem(mesh, obj_gpu, (0.0, 1.0))
+                integrator_gpu = init(problem_gpu, dt=0.1)
+                step!(integrator_gpu)
 
-    #             @test all(Array(integrator_gpu.u.n.nnCL) .== Array(integrator_gpu.u.n.nnFull))
-    #         end
+                @test all(Array(integrator_gpu.u.n.nnCL) .== Array(integrator_gpu.u.n.nnFull))
+            end
 
-    #         # 3D
-    #         box = [0.0 1.0; 0.0 1.0; 0.0 1.0]
-    #         cellSize = [0.1, 0.1, 0.1]
-    #         mesh = UnstructuredMesh(3; n  = Node((nnCL=Int,nnFull=Int)))
-    #         @addRule model=mesh scope=integrator function get_neighbors3D(uNew, u, p, t)
-    #             @kernel function get_neighbors3D_kernel!(uNew, u, p, t)
-    #                 x1 = y1 = z1 = 0.0
-    #                 x2 = y2 = z2 = 0.0
-    #                 i = @index(Global)
+            # 3D
+            box = [0.0 1.0; 0.0 1.0; 0.0 1.0]
+            cellSize = [0.1, 0.1, 0.1]
+            mesh = UnstructuredMesh(3; n  = Node((nnCL=Int,nnFull=Int)))
+            @addRule model=mesh function get_neighbors3D(uNew, u, p, t)
+                @kernel function get_neighbors3D_kernel!(uNew, u, p, t)
+                    x1 = y1 = z1 = 0.0
+                    x2 = y2 = z2 = 0.0
+                    i = @index(Global)
 
-    #                 if i < length(u.n.x)
-    #                     u.n.nnFull[i] = 0
-    #                     u.n.nnCL[i] = 0
-    #                     x1 = u.n.x[i]
-    #                     y1 = u.n.y[i]
-    #                     z1 = u.n.z[i]
-    #                     # Full neighbors
-    #                     for j in iterateOver(u.n)
-    #                         i == j ? continue : nothing
-    #                         x2 = u.n.x[j]
-    #                         y2 = u.n.y[j]
-    #                         z2 = u.n.z[j]
-    #                         dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
-    #                         if dist <= 0.1
-    #                             uNew.n.nnFull[i] += 1
-    #                         end
-    #                     end
-    #                     # Cell-linked neighbors
-    #                     for j in iterateOverNeighbors(u, :n, x1, y1, z1)
-    #                         i == j ? continue : nothing
-    #                         x2 = u.n.x[j]
-    #                         y2 = u.n.y[j]
-    #                         z2 = u.n.z[j]
-    #                         dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
-    #                         if dist <= 0.1
-    #                             uNew.n.nnCL[i] += 1
-    #                         end
-    #                     end
-    #                 end
-    #             end
+                    if i < length(u.n.x)
+                        u.n.nnFull[i] = 0
+                        u.n.nnCL[i] = 0
+                        x1 = u.n.x[i]
+                        y1 = u.n.y[i]
+                        z1 = u.n.z[i]
+                        # Full neighbors
+                        for j in iterateOver(u.n)
+                            i == j ? continue : nothing
+                            x2 = u.n.x[j]
+                            y2 = u.n.y[j]
+                            z2 = u.n.z[j]
+                            dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
+                            if dist <= 0.1
+                                uNew.n.nnFull[i] += 1
+                            end
+                        end
+                        # Cell-linked neighbors
+                        for j in iterateOverNeighbors(u, :n, x1, y1, z1)
+                            i == j ? continue : nothing
+                            x2 = u.n.x[j]
+                            y2 = u.n.y[j]
+                            z2 = u.n.z[j]
+                            dist = sqrt((x2 - x1)^2 + (y2 - y1)^2 + (z2 - z1)^2)
+                            if dist <= 0.1
+                                uNew.n.nnCL[i] += 1
+                            end
+                        end
+                    end
+                end
 
-    #             dev = get_backend(uNew)
-    #             nthreads = 256
-    #             if dev == CPU()
-    #                 nthreads = Threads.nthreads()
-    #             end
-    #             get_neighbors3D_kernel!(dev, nthreads)(uNew, u, p, t, ndrange=length(u.n.x))
-    #             KernelAbstractions.synchronize(dev)
-    #         end
-    #         obj = UnstructuredMeshObject(mesh, n = 10000, neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
+                dev = get_backend(uNew)
+                nthreads = 256
+                if dev == CPU()
+                    nthreads = Threads.nthreads()
+                end
+                get_neighbors3D_kernel!(dev, nthreads)(uNew, u, p, t, ndrange=length(u.n.x))
+                KernelAbstractions.synchronize(dev)
+            end
+            obj = UnstructuredMeshObject(mesh, n = 10000, neighbors=NeighborsCellLinked(box=box, cellSize=cellSize))
 
-    #         obj.n.x .= rand(10000)
-    #         obj.n.y .= rand(10000)
-    #         obj.n.z .= rand(10000)
+            obj.n.x .= rand(10000)
+            obj.n.y .= rand(10000)
+            obj.n.z .= rand(10000)
 
-    #         problem = CBProblem(mesh, obj, (0.0, 1.0))
-    #         integrator = init(problem, dt=0.1)
-    #         step!(integrator)
+            problem = CBProblem(mesh, obj, (0.0, 1.0))
+            integrator = init(problem, dt=0.1)
+            step!(integrator)
 
-    #         @test all(integrator.u.n.nnCL .== integrator.u.n.nnFull)
+            @test all(integrator.u.n.nnCL .== integrator.u.n.nnFull)
 
-    #         if CUDA.has_cuda()
-    #             obj_gpu = toGPU(obj)
-    #             problem_gpu = CBProblem(mesh, obj_gpu, (0.0, 1.0))
-    #             integrator_gpu = init(problem_gpu, dt=0.1)
-    #             step!(integrator_gpu)
+            if CUDA.has_cuda()
+                obj_gpu = toDevice(obj, CUDA.CUDABackend)
+                problem_gpu = CBProblem(mesh, obj_gpu, (0.0, 1.0))
+                integrator_gpu = init(problem_gpu, dt=0.1)
+                step!(integrator_gpu)
 
-    #             @test all(Array(integrator_gpu.u.n.nnCL) .== Array(integrator_gpu.u.n.nnFull))
-    #         end
+                @test all(Array(integrator_gpu.u.n.nnCL) .== Array(integrator_gpu.u.n.nnFull))
+            end
 
-    #     end
+        end
+    end
 
     # @testset "UnstructuredMeshObject - removing elements" begin
 
@@ -936,7 +935,7 @@ using KernelAbstractions
     #             surviving_b = [obj.n.b[i] for i in 1:n[1] if obj.n._FlagsSurvived[i]]
                 
     #             # Perform compaction via update!
-    #             obj_gpu = toGPU(obj)
+    #             obj_gpu = toDevice(obj, CUDA.CUDABackend)
     #             CellBasedModels.update!(obj_gpu)
                 
     #             # After compaction, N should be 3 (3 surviving elements)

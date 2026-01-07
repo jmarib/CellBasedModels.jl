@@ -7,7 +7,6 @@ module CellBasedModelsGPUCudaExt
     import StaticArrays: SizedVector, SizedArray
 
     include("../src/platformsGPUCuda.jl")
-    include("../src/neighbors/commonGPUCuda.jl")
     include("../src/neighbors/neighborsFullGPUCuda.jl")
     include("../src/neighbors/neighborsCellLinkedGPUCuda.jl")
     include("../src/AgentStructure/unstructuredMeshGPUCuda.jl")

@@ -1,27 +1,8 @@
-abstract type AbstractPlatform end
-abstract type CPU <: AbstractPlatform end
-abstract type CPUSinglethread <: CPU end
-abstract type CPUMultithreading <: CPU end
-abstract type GPU <: AbstractPlatform end
-
-function toCPU(x); x end   # fallback definitions
-function toGPU(x); @warn "No GPU found. Fallback to CPU."; x end
-
 function platform()
-    if Threads.nthreads() > 1
-        return CPUMultithreading
-    else
-        return CPUSinglethread
-    end
+    return CPU
 end
 function platform(x)
-    if x isa Threads.Atomic && Threads.nthreads() > 1
-        return CPUMultithreading
-    elseif x isa Threads.Atomic && Threads.nthreads() == 1
-        return CPUSinglethread
-    else
-        error("Unable to specify platform from type $(typeof(x)).")
-    end
+    return CPU
 end
 
 # """"
