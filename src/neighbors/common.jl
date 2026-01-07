@@ -1,4 +1,4 @@
-function compactUnstructuredMeshField!(prop::UnstructuredMeshField, perm::AbstractVector{Int}, aux::NamedTuple, NNew)
+function compactUnstructuredMeshField!(prop::UnstructuredMeshField{P}, perm, aux::NamedTuple, NNew) where {P<:CPU}
     N = lengthProperties(prop)
     for (fieldname, field) in pairs(prop._p)
         aux_field = getfield(aux, fieldname)

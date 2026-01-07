@@ -22,9 +22,8 @@ benchmark = true #just for internal optimizations
     # include("testMultiMesh.jl")
     # include("testAddFunctions.jl")
 
-    include("testAgentGlobal.jl")
-
-    # include("testAgentPoint.jl")
+    # include("testAgentGlobal.jl")
+    include("testAgentPoint.jl")
 end
 
 if benchmark

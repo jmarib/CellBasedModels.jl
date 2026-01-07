@@ -10,17 +10,16 @@ function compactUnstructuredMeshField!(prop::UnstructuredMeshField{P}, perm, aux
     return nothing
 end
 
-function compactArray_kernel!(data, auxBuffer, perm, N)
-    i = @index Global
-    if i <= N
-        if perm[i] != 0
-            auxBuffer[perm[i]] = data[i]
+function compactArrayGPU!(data, auxBuffer, perm, N::Int, NNew::Int)
+    @kernel function compactArray_kernel!(data, auxBuffer, perm, N)
+        i = @index Global
+        if i <= N
+            if perm[i] != 0
+                auxBuffer[perm[i]] = data[i]
+            end
         end
     end
-    return
-end
 
-function compactArrayGPU!(data, auxBuffer, perm, N::Int, NNew::Int)
     # Copy data to target positions using auxiliary buffer (parallelizable)
     # threads = 256
     # blocks = cld(N, threads)
@@ -28,7 +27,7 @@ function compactArrayGPU!(data, auxBuffer, perm, N::Int, NNew::Int)
     # # Synchronize to ensure kernel completion
     # CUDA.synchronize()
     backend = get_backend(data)
-    mul2_kernel(backend, 256)(data, auxBuffer, perm, N, ndrange=size(data))
+    compactArray_kernel!(backend, 256)(data, auxBuffer, perm, N, ndrange=size(data))
     synchronize(backend)
     # Copy back from auxiliary buffer to original array
     @inbounds @views data[1:NNew] .= auxBuffer[1:NNew]

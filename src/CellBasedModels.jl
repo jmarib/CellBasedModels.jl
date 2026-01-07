@@ -67,10 +67,8 @@ module CellBasedModels
     export createObject
     export AgentGlobal
     include("./AgentSpecializations/agentGlobal.jl")
-    # export AgentPoint, AgentPointObject, addAgent!, iterateAgents, iterateOverNeighbors
-    # include("./AgentSpecializations/agentPoint.jl")
-    # export AgentPolymer, AgentPolymerObject, addAgent!, iterateAgents, iterateOverNeighbors
-    # include("./AgentSpecializations/agentPolymer.jl")
+    export AgentPoint, addAgent!, removeAgent!
+    include("./AgentSpecializations/agentPoint.jl")
 
     include("./neighbors/common.jl")
     include("../src/neighbors/commonGPU.jl")
@@ -82,17 +80,6 @@ module CellBasedModels
     # include("./AgentStructure/structuredMesh.jl")
     # export MultiMesh, MultiMeshObject
     # include("./AgentStructure/multiMesh.jl")
-    # export AgentGlobal
-    # include("./AgentStructure/agentGlobal.jl")
-    # export AgentPoint, AgentPointObject, addAgent!, iterateAgents
-    # include("./AgentStructure/agentPoint.jl")
-        #Structure
-    # export ABM
-    # include("./AgentStructure/abm.jl")
-    #     #Rule
-    # include("./AgentStructure/functionRule.jl")
-    #     #DE
-    # include("./AgentStructure/functionDE.jl")
 
     export @addRule, @addODE, @addSDE
     export @kernel_launch
@@ -111,45 +98,5 @@ module CellBasedModels
     # export CBMNeighbors, computeNeighbors!
     # include("./neighbors.jl")
     # using .CBMNeighbors
-
-    #Community
-    # export update!
-    # export CommunityGlobal
-    # include("./CommunityStructure/communityGlobal.jl")
-    # export CommunityABM
-    # include("./CommunityStructure/communityABM.jl")
-    # include("./CommunityStructure/communityStructure.jl")
-    #     #IO
-    # export saveJLD2, saveRAM!, loadJLD2
-    # include("./CommunityStructure/IO.jl")
-    #     #Update
-    # export update!
-    # include("./CommunityStructure/update.jl")
-    #     #Step
-    # export agentStepRule!, modelStepRule!, mediumStepRule!
-    # export agentStepDE!, modelStepDE!, mediumStepDE!
-    # export step!, evolve!
-    # include("./CommunityStructure/step.jl")
-
-    # #Optimization tools
-    # export CBMFitting
-    # include("./fitting/fitting.jl")
-
-    # #Implemented Models
-    # export CBMModels
-    # include("./models/models.jl")
-
-    # module CBMUtils
-    #     include("./CommunityStructure/initializers.jl")
-    # end
-    # #Visualization functions
-    # export CBMPlots
-    # include("./plotting/plotting.jl")
-
-    # module CustomFunctions
-
-    #     using ..CellBasedModels
-        
-    # end
 
 end
