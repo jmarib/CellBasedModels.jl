@@ -9,3 +9,5 @@ examples/*/*
 *.jld2
 
 test/testfiles/*
+*.png
+*.csv
