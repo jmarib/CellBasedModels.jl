@@ -11,3 +11,4 @@ examples/*/*
 test/testfiles/*
 *.png
 *.csv
+*.mp4
