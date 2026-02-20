@@ -2,7 +2,7 @@
 
 julia_version = "1.10.2"
 manifest_format = "2.0"
-project_hash = "4f5f2f7cb7922f350f8d2a671307c94470b94659"
+project_hash = "7ccb146d10ac29acb51978ea79ab81c893147d5f"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "016833eb52ba2d6bea9fcb50ca295980e728ee24"
@@ -1652,6 +1652,17 @@ deps = ["Dates", "PrecompileTools", "UUIDs"]
 git-tree-sha1 = "8489905bcdbcfac64d1daa51ca07c0d8f0283821"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
 version = "2.8.1"
+
+[[deps.Peaks]]
+deps = ["SIMD"]
+git-tree-sha1 = "c335ee4da31cd44fc842ff66c552198fee5b79a3"
+uuid = "18e31ff7-3703-566c-8e60-38913d67486b"
+version = "0.6.1"
+weakdeps = ["Makie", "RecipesBase"]
+
+    [deps.Peaks.extensions]
+    MakieExt = "Makie"
+    PlotsExt = "RecipesBase"
 
 [[deps.Pixman_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "LLVMOpenMP_jll", "Libdl"]
