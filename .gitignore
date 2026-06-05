@@ -7,6 +7,7 @@ examples/.*
 examples/*/*
 !examples/data/development.csv
 *.jld2
+*.tif
 
 test/testfiles/*
 *.png
