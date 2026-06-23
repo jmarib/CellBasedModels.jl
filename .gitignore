@@ -12,5 +12,4 @@ test/testfiles/*
 *.mp4
 *.pdf
 *.svg
-*.ijm
 *.gif
