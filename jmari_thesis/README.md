@@ -6,8 +6,8 @@ This repository contains the code used to perform the simulations on bacterial c
 
 - jmari_extended_code: This contains notebooks for the different tests performed both during the previous internhip and during the development of the thesis. This includes code for many possible combinations, as well as analysis performed. 
 
-Joana Marí Breunig \
-Bachelor's in Human Biology, UPF \
+Joana Marí Breunig <br>
+Bachelor's in Human Biology, UPF <br>
 June 2026
 
 
