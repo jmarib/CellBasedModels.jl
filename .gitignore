@@ -1,11 +1,8 @@
 docs/build
 build
-*.ipynb
-!examples/*.ipynb
-.*
-examples/.*
-examples/*/*
-!examples/data/development.csv
+# *.ipynb
+
+# !examples/data/development.csv
 *.jld2
 *.tif
 
@@ -13,3 +10,7 @@ test/testfiles/*
 *.png
 *.csv
 *.mp4
+*.pdf
+*.svg
+*.ijm
+*.gif
